@@ -1,0 +1,6 @@
+{
+  "name": "Cascade Infinity: Multi-Tier Rebirth Clicker",
+  "description": "An incremental clicker with expanding rebirth systems: Ascension, Supernova, Dimensional Rifts, Singularities, and Multiverse Transcendence.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
