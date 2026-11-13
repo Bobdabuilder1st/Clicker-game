@@ -4,6 +4,7 @@ import {
   GameState,
   MultiBuyAmount,
   MultiBuySection,
+  SaveStateEntry,
   SkillNode,
   SingularityUpgrade,
   TieredPerk
@@ -21,35 +22,41 @@ import {
   INITIAL_SINGULARITY_UPGRADES,
   INITIAL_SKILL_NODES,
   INITIAL_UPGRADE_TRACKS,
+  LAYER_PERK_MAX_TIER,
   PRESTIGE_BASE_RP_COST,
   PRESTIGE_RP_SCALE,
   REBIRTH_BASE_COST,
   REBIRTH_COST_SCALE,
   SINGULARITY_BASE_TP_COST,
+  SINGULARITY_CORE_MAX_LEVEL,
   SINGULARITY_TP_SCALE,
   TIME_FLIP_BASE_COST,
   TIME_FLIP_COST_SCALE,
+  TIME_FLIP_MAX_LEVEL,
   TIME_RESET_ESSENCE_COST,
   TREE_POINT_BASE_PP_COST,
+  UPGRADE_MAX_TIER,
   getClickerEvolution,
   getNextClickerEvolution
 } from '../utils/gameData';
 import {
-  GOOGOL,
+  FLOAT_SAFE_MAX,
   applySoftAndHardCap,
   calculateMultiBuy,
   calculateMultiBuyRebirth,
-  clampGoogol,
   computeCappedBoostCurve,
+  formatNum,
   getEffectiveScale,
   getLevelCost,
   getRebirthLevelCost,
   safeMul,
+  safeNum,
   safePow
 } from '../utils/format';
 import { sounds } from '../utils/audio';
 
 const STORAGE_KEY = 'cascade_infinity_time_v5';
+const SAVE_STATES_KEY = 'cascade_infinity_save_states_v1';
 
 function createDefaultBuildingAutoMap(): Record<string, boolean> {
   const map: Record<string, boolean> = {};
@@ -72,7 +79,7 @@ function createDefaultMultiBuyMap(): Record<MultiBuySection, MultiBuyAmount> {
 
 function createInitialState(): GameState {
   return {
-    version: 5,
+    version: 6,
     coins: 0,
     lifetimeCoins: 0,
     totalClicks: 0,
@@ -113,6 +120,15 @@ function createInitialState(): GameState {
     multiBuyBySection: createDefaultMultiBuyMap(),
     notation: 'standard',
     soundEnabled: true,
+    hardMode: false,
+    codeClickerUnlocked: false,
+    codeClickerEnabled: true,
+    achievements: {
+      firstRebirth: false,
+      firstPrestige: false,
+      firstSkillTree: false
+    },
+    firstRebirthPopupShown: false,
     adminUnlocked: false,
     adminFreeMode: false
   };
@@ -124,12 +140,81 @@ function mergeById<T extends { id: string }>(defaults: T[], saved: T[] | undefin
   return defaults.map((def) => {
     const existing = map.get(def.id);
     if (!existing) return { ...def };
+    const defaultMaxTier = (def as unknown as { maxTier?: number }).maxTier ?? LAYER_PERK_MAX_TIER;
+    const savedTier = (existing as unknown as { tier?: number }).tier ?? 1;
     return {
       ...def,
       ...existing,
-      maxTier: (def as unknown as { maxTier?: number }).maxTier ?? 10
+      maxTier: defaultMaxTier,
+      tier: Math.min(defaultMaxTier, Math.max(1, savedTier))
     } as T;
   });
+}
+
+function normalizeState(parsed: Partial<GameState>): GameState {
+  const def = createInitialState();
+  const rebirthLevel = Math.max(0, parsed.rebirthLevel ?? 0);
+  const prestigeLevel = Math.max(0, parsed.prestigeLevel ?? 0);
+  const treeResetCount = Math.max(0, parsed.treeResetCount ?? 0);
+
+  return {
+    ...def,
+    ...parsed,
+    coins: safeNum(parsed.coins ?? 0),
+    lifetimeCoins: safeNum(parsed.lifetimeCoins ?? 0),
+    rebirthLevel,
+    rebirthPoints: safeNum(parsed.rebirthPoints ?? 0),
+    lifetimeRebirthPoints: safeNum(parsed.lifetimeRebirthPoints ?? 0),
+    prestigeLevel,
+    prestigePoints: safeNum(parsed.prestigePoints ?? 0),
+    lifetimePrestigePoints: safeNum(parsed.lifetimePrestigePoints ?? 0),
+    treeResetCount,
+    treePoints: safeNum(parsed.treePoints ?? 0),
+    lifetimeTreePoints: safeNum(parsed.lifetimeTreePoints ?? 0),
+    singularityCoreLevel: Math.min(
+      SINGULARITY_CORE_MAX_LEVEL,
+      Math.max(0, parsed.singularityCoreLevel ?? 0)
+    ),
+    singularityEssence: safeNum(parsed.singularityEssence ?? 0),
+    lifetimeSingularityEssence: safeNum(parsed.lifetimeSingularityEssence ?? 0),
+    timeTokens: safeNum(parsed.timeTokens ?? 0),
+    lifetimeTimeTokens: safeNum(parsed.lifetimeTimeTokens ?? 0),
+    timeFlipChanceLevel: Math.min(
+      TIME_FLIP_MAX_LEVEL,
+      Math.max(0, parsed.timeFlipChanceLevel ?? 0)
+    ),
+    buildings: mergeById(def.buildings, parsed.buildings),
+    upgradeTracks: mergeById(def.upgradeTracks, parsed.upgradeTracks).map((u) => ({
+      ...u,
+      maxTier: UPGRADE_MAX_TIER,
+      tier: Math.min(UPGRADE_MAX_TIER, Math.max(1, u.tier))
+    })),
+    rebirthPerks: mergeById(def.rebirthPerks, parsed.rebirthPerks),
+    prestigeUpgrades: mergeById(def.prestigeUpgrades, parsed.prestigeUpgrades),
+    skillNodes: mergeById(def.skillNodes, parsed.skillNodes).map((s) => ({
+      ...s,
+      requires: def.skillNodes.find((d) => d.id === s.id)?.requires ?? s.requires
+    })),
+    singularityUpgrades: mergeById(def.singularityUpgrades, parsed.singularityUpgrades),
+    multiBuyBySection: { ...def.multiBuyBySection, ...(parsed.multiBuyBySection ?? {}) },
+    automation: {
+      ...def.automation,
+      ...(parsed.automation ?? {}),
+      buildingAutoBuyEnabled: {
+        ...def.automation.buildingAutoBuyEnabled,
+        ...(parsed.automation?.buildingAutoBuyEnabled ?? {})
+      }
+    },
+    achievements: {
+      firstRebirth: Boolean(parsed.achievements?.firstRebirth ?? rebirthLevel >= 1),
+      firstPrestige: Boolean(parsed.achievements?.firstPrestige ?? prestigeLevel >= 1),
+      firstSkillTree: Boolean(parsed.achievements?.firstSkillTree ?? treeResetCount >= 1)
+    },
+    hardMode: Boolean(parsed.hardMode),
+    codeClickerUnlocked: Boolean(parsed.codeClickerUnlocked),
+    codeClickerEnabled: parsed.codeClickerEnabled ?? true,
+    firstRebirthPopupShown: Boolean(parsed.firstRebirthPopupShown ?? rebirthLevel >= 1)
+  };
 }
 
 function loadSavedState(): GameState {
@@ -137,46 +222,28 @@ function loadSavedState(): GameState {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return createInitialState();
     const parsed = JSON.parse(raw) as Partial<GameState>;
-    const def = createInitialState();
-    return {
-      ...def,
-      ...parsed,
-      coins: clampGoogol(parsed.coins ?? 0),
-      lifetimeCoins: clampGoogol(parsed.lifetimeCoins ?? 0),
-      rebirthPoints: clampGoogol(parsed.rebirthPoints ?? 0),
-      lifetimeRebirthPoints: clampGoogol(parsed.lifetimeRebirthPoints ?? 0),
-      prestigePoints: clampGoogol(parsed.prestigePoints ?? 0),
-      lifetimePrestigePoints: clampGoogol(parsed.lifetimePrestigePoints ?? 0),
-      treePoints: clampGoogol(parsed.treePoints ?? 0),
-      lifetimeTreePoints: clampGoogol(parsed.lifetimeTreePoints ?? 0),
-      singularityEssence: clampGoogol(parsed.singularityEssence ?? 0),
-      lifetimeSingularityEssence: clampGoogol(parsed.lifetimeSingularityEssence ?? 0),
-      timeTokens: clampGoogol(parsed.timeTokens ?? 0),
-      lifetimeTimeTokens: clampGoogol(parsed.lifetimeTimeTokens ?? 0),
-      buildings: mergeById(def.buildings, parsed.buildings),
-      upgradeTracks: mergeById(def.upgradeTracks, parsed.upgradeTracks).map((u) => ({
-        ...u,
-        maxTier: INITIAL_UPGRADE_TRACKS.find((d) => d.id === u.id)?.maxTier ?? 60
-      })),
-      rebirthPerks: mergeById(def.rebirthPerks, parsed.rebirthPerks),
-      prestigeUpgrades: mergeById(def.prestigeUpgrades, parsed.prestigeUpgrades),
-      skillNodes: mergeById(def.skillNodes, parsed.skillNodes).map((s) => ({
-        ...s,
-        requires: def.skillNodes.find((d) => d.id === s.id)?.requires ?? s.requires
-      })),
-      singularityUpgrades: mergeById(def.singularityUpgrades, parsed.singularityUpgrades),
-      multiBuyBySection: { ...def.multiBuyBySection, ...(parsed.multiBuyBySection ?? {}) },
-      automation: {
-        ...def.automation,
-        ...(parsed.automation ?? {}),
-        buildingAutoBuyEnabled: {
-          ...def.automation.buildingAutoBuyEnabled,
-          ...(parsed.automation?.buildingAutoBuyEnabled ?? {})
-        }
-      }
-    };
+    return normalizeState(parsed);
   } catch {
     return createInitialState();
+  }
+}
+
+function loadSaveStatesList(): SaveStateEntry[] {
+  try {
+    const raw = localStorage.getItem(SAVE_STATES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSaveStatesList(list: SaveStateEntry[]) {
+  try {
+    localStorage.setItem(SAVE_STATES_KEY, JSON.stringify(list));
+  } catch {
+    // Ignore storage quota issues
   }
 }
 
@@ -206,7 +273,8 @@ export function previewTieredPurchase<
   currency: number,
   multiBuy: MultiBuyAmount,
   scaleReduction: number,
-  freeMode = false
+  freeMode = false,
+  costMult = 1
 ): TieredBuyPreview {
   if (isTieredItemMaxed(item)) {
     return {
@@ -225,7 +293,9 @@ export function previewTieredPurchase<
   let simBaseCost = item.baseCost;
   let simCostScale = item.costScale;
   let effectiveScale = getEffectiveScale(simCostScale, scaleReduction);
-  const nextSingleCost = freeMode ? 0 : getLevelCost(simBaseCost, effectiveScale, simLevel);
+  const nextSingleCost = freeMode
+    ? 0
+    : getLevelCost(simBaseCost, effectiveScale, simLevel, costMult);
 
   const isMaxMode = multiBuy === -1;
   const maxSteps = isMaxMode ? (freeMode ? 10 : 100) : multiBuy;
@@ -237,18 +307,18 @@ export function previewTieredPurchase<
     if (simTier >= item.maxTier && simLevel >= item.tierMaxLevel) break;
 
     effectiveScale = getEffectiveScale(simCostScale, scaleReduction);
-    const stepCost = freeMode ? 0 : getLevelCost(simBaseCost, effectiveScale, simLevel);
-    if (stepCost >= GOOGOL) break;
+    const stepCost = freeMode ? 0 : getLevelCost(simBaseCost, effectiveScale, simLevel, costMult);
+    if (stepCost >= FLOAT_SAFE_MAX) break;
 
     if (isMaxMode && !freeMode) {
       if (currency >= totalCost + stepCost) {
-        totalCost = clampGoogol(totalCost + stepCost);
+        totalCost = safeNum(totalCost + stepCost);
         count++;
       } else {
         break;
       }
     } else {
-      totalCost = clampGoogol(totalCost + stepCost);
+      totalCost = safeNum(totalCost + stepCost);
       count++;
     }
 
@@ -256,7 +326,7 @@ export function previewTieredPurchase<
     if (simLevel >= item.tierMaxLevel) {
       if (simTier < item.maxTier) {
         willEvolve = true;
-        simBaseCost = clampGoogol(
+        simBaseCost = safeNum(
           Math.ceil(safeMul(simBaseCost, safePow(effectiveScale, item.tierMaxLevel)) * 1.45)
         );
         simCostScale = Number((simCostScale + 0.08).toFixed(2));
@@ -283,7 +353,7 @@ export function previewTieredPurchase<
   return {
     count,
     totalCost: freeMode ? 0 : totalCost,
-    canAfford: freeMode ? count > 0 : count > 0 && currency >= totalCost && totalCost < GOOGOL,
+    canAfford: freeMode ? count > 0 : count > 0 && currency >= totalCost && totalCost < FLOAT_SAFE_MAX,
     nextSingleCost,
     effectiveScale: getEffectiveScale(item.costScale, scaleReduction),
     willEvolve,
@@ -296,9 +366,10 @@ function applyTieredPurchase<T extends TieredPerk | SkillNode | SingularityUpgra
   currency: number,
   multiBuy: MultiBuyAmount,
   scaleReduction: number,
-  freeMode = false
+  freeMode = false,
+  costMult = 1
 ): { updated: T; spent: number; bought: number; evolutions: number } {
-  const sim = previewTieredPurchase(item, currency, multiBuy, scaleReduction, freeMode);
+  const sim = previewTieredPurchase(item, currency, multiBuy, scaleReduction, freeMode, costMult);
   if (sim.isMaxed || !sim.canAfford || sim.count <= 0) {
     return { updated: item, spent: 0, bought: 0, evolutions: 0 };
   }
@@ -313,17 +384,16 @@ function applyTieredPurchase<T extends TieredPerk | SkillNode | SingularityUpgra
 
     nextItem.level += 1;
     nextItem.totalLevels += 1;
-    nextItem.totalBonus = clampGoogol(Number((nextItem.totalBonus + nextItem.bonusPerLevel).toFixed(6)));
+    nextItem.totalBonus = safeNum(Number((nextItem.totalBonus + nextItem.bonusPerLevel).toFixed(6)));
 
     if (nextItem.level >= nextItem.tierMaxLevel && nextItem.tier < nextItem.maxTier) {
       const effScale = getEffectiveScale(nextItem.costScale, scaleReduction);
       if (isSingularityUpg) {
-        // Singularity upgrades keep scaling by 10x per purchase seamlessly
-        nextItem.baseCost = clampGoogol(
+        nextItem.baseCost = safeNum(
           Math.ceil(safeMul(nextItem.baseCost, safePow(effScale, nextItem.tierMaxLevel)))
         );
       } else {
-        nextItem.baseCost = clampGoogol(
+        nextItem.baseCost = safeNum(
           Math.ceil(safeMul(nextItem.baseCost, safePow(effScale, nextItem.tierMaxLevel)) * 1.45)
         );
         nextItem.costScale = Number((nextItem.costScale + 0.08).toFixed(2));
@@ -332,7 +402,7 @@ function applyTieredPurchase<T extends TieredPerk | SkillNode | SingularityUpgra
       let bonusJump = 2;
       if (isPrestigeUpg) {
         if (nextItem.id === 'pu_crit' || nextItem.id === 'pu_memory') {
-          bonusJump = nextItem.tier >= 4 ? 2 : 1.5;
+          bonusJump = nextItem.tier >= 4 ? 1.5 : 1.25;
         } else {
           bonusJump = nextItem.tier >= 4 ? 10 : 3;
         }
@@ -340,9 +410,7 @@ function applyTieredPurchase<T extends TieredPerk | SkillNode | SingularityUpgra
         bonusJump = 1.25;
       }
 
-      nextItem.bonusPerLevel = clampGoogol(
-        Number((nextItem.bonusPerLevel * bonusJump).toFixed(4))
-      );
+      nextItem.bonusPerLevel = safeNum(Number((nextItem.bonusPerLevel * bonusJump).toFixed(4)));
       nextItem.tier += 1;
       nextItem.level = 0;
       evolutions += 1;
@@ -354,6 +422,8 @@ function applyTieredPurchase<T extends TieredPerk | SkillNode | SingularityUpgra
 
 export function useGameEngine(activeTab: ActiveTab = 'buildings') {
   const [state, setState] = useState<GameState>(loadSavedState);
+  const [saveStates, setSaveStates] = useState<SaveStateEntry[]>(loadSaveStatesList);
+  const [firstRebirthPopupOpen, setFirstRebirthPopupOpen] = useState(false);
 
   useEffect(() => {
     sounds.enabled = state.soundEnabled;
@@ -387,28 +457,33 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
   const stats = useMemo(() => {
     const free = state.adminFreeMode;
+    const hardCostMult = state.hardMode ? 10 : 1;
     const getRebirthPerk = (id: string) => state.rebirthPerks.find((p) => p.id === id);
     const getPrestigeUpg = (id: string) => state.prestigeUpgrades.find((p) => p.id === id);
     const getSkill = (id: string) => state.skillNodes.find((s) => s.id === id);
     const getSingUpg = (id: string) => state.singularityUpgrades.find((u) => u.id === id);
 
-    // 0. Time Reset Multiplier & Dynamic 100T * 10^timeResetCount Caps
-    const timeTokenMult = clampGoogol(1 + state.timeTokens * 0.1); // Each Time Token gives +10% boost to all pre-Time upgrades!
-    const boostCapCeiling = clampGoogol(safeMul(BASE_BOOST_CAP, safePow(10, state.timeResetCount)));
+    // 0. Time Reset Multiplier (+1% per Time Token!) & Dynamic 100T * 10^timeResetCount Caps
+    const timeTokenMult = safeNum(1 + state.timeTokens * 0.01);
+    const boostCapCeiling = safeNum(safeMul(BASE_BOOST_CAP, safePow(10, state.timeResetCount)));
 
     // 1. Global Scale Reduction (Soft cap 40%, Hard cap 60%)
     const rawScaleRed =
       ((getSkill('sk_scale')?.totalBonus ?? 0) + (getSingUpg('su_compression')?.totalBonus ?? 0)) / 100;
     const globalScaleReduction = applySoftAndHardCap(rawScaleRed, 0.4, 0.6, 0.5);
 
-    // 2. Singularity Core Level Multipliers
-    const coreLevel = state.singularityCoreLevel;
-    const coreCoinMult = applySoftAndHardCap(safePow(3, coreLevel), 1e10, 1e20, 0.45);
-    const coreRpMult = applySoftAndHardCap(safePow(2, coreLevel), 1e7, 1e14, 0.45);
-    const corePpMult = applySoftAndHardCap(safePow(2.2, coreLevel), 1e7, 1e14, 0.5);
-    const coreTpMult = applySoftAndHardCap(safePow(1.8, coreLevel), 1e5, 1e10, 0.5);
+    // 2. Singularity Core Level Multipliers (Capped at Lv.100)
+    const coreLevel = Math.min(SINGULARITY_CORE_MAX_LEVEL, state.singularityCoreLevel);
+    const coreCoinMult = applySoftAndHardCap(safePow(3, coreLevel), 1e12, 1e24, 0.45);
+    const coreRpMult = applySoftAndHardCap(safePow(2, coreLevel), 1e8, 1e16, 0.45);
+    const corePpMult = applySoftAndHardCap(safePow(2.2, coreLevel), 1e8, 1e16, 0.5);
+    const coreTpMult = applySoftAndHardCap(safePow(1.8, coreLevel), 1e6, 1e12, 0.5);
 
-    // 3. Four Capped Cross-Currency Boost Curves (All share boostCapCeiling = 100T * 10^timeResets)
+    // 3. Cascading Cross-Currency Boost Curves (All share boostCapCeiling = 100T * 10^timeResets):
+    // - RP -> Coins
+    // - PP -> RP & Coins
+    // - TP -> PP, RP & Coins
+    // - Essence -> TP, PP, RP & Coins
     const rpResonanceBonus = applySoftAndHardCap(
       (getRebirthPerk('rp_resonance')?.totalBonus ?? 0) / 100,
       5,
@@ -450,6 +525,17 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       1e12
     );
 
+    const coinCascadeMult = safeMul(
+      safeMul(rpCurve.multiplier, ppToRpCurve.multiplier),
+      safeMul(tpToPpCurve.multiplier, essenceToTpCurve.multiplier)
+    );
+    const rpCascadeMult = safeMul(
+      ppToRpCurve.multiplier,
+      safeMul(tpToPpCurve.multiplier, essenceToTpCurve.multiplier)
+    );
+    const ppCascadeMult = safeMul(tpToPpCurve.multiplier, essenceToTpCurve.multiplier);
+    const tpCascadeMult = essenceToTpCurve.multiplier;
+
     // 4. Coin Core (Clicker) — NO level cap, 1.1x scale, starting click = 1!
     const clickerEvolution = getClickerEvolution(state.clickerLevel);
     const nextClickerEvolution = getNextClickerEvolution(state.clickerLevel);
@@ -465,7 +551,6 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       10000,
       0.5
     );
-    // Uncapped Coin Core level progression (bounded only by Googol safety)
     const clickerLevelMult = safeMul(
       1 + Math.max(0, state.clickerLevel - 1) * 0.04,
       safePow(1.015, Math.max(0, state.clickerLevel - 1))
@@ -479,7 +564,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       timeTokenMult
     );
 
-    // 5. Global Multipliers (all pre-Time layers boosted by +10% per Time Token!)
+    // 5. Global Multipliers (all boosted by +1% per Time Token)
     const skRootAllMult = safeMul(
       applySoftAndHardCap(1 + (getSkill('sk_root')?.totalBonus ?? 0) / 100, 1e4, 1e8, 0.45),
       timeTokenMult
@@ -493,12 +578,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const skMintsMult = applySoftAndHardCap(1 + (getSkill('sk_mints')?.totalBonus ?? 0) / 100, 1e4, 1e8, 0.45);
 
     const rebirthLevelMult = applySoftAndHardCap(1 + state.rebirthLevel * 0.5, 50, 500, 0.5);
-    const prestigePointsCoinMult = applySoftAndHardCap(
-      1 + Math.pow(1 + state.prestigePoints, 0.32) * 0.4 + state.prestigeLevel * 1.1,
-      1e6,
-      1e14,
-      0.45
-    );
+    const prestigeLevelCoinMult = applySoftAndHardCap(1 + state.prestigeLevel * 1.1, 500, 1e6, 0.5);
 
     const rebirthMinesMult = safeMul(
       applySoftAndHardCap(1 + (getRebirthPerk('rp_mines')?.totalBonus ?? 0) / 100, 1e4, 1e8, 0.45),
@@ -519,18 +599,18 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       0.45
     );
 
-    // 6. Upgrade Tracks (Soft cap T15, Hard cap T35)
+    // 6. Upgrade Tracks (Soft cap T15, Max Tier 30)
     const globalTrack = state.upgradeTracks.find((u) => u.id === 'trk_global');
-    const globalEffTiers = globalTrack ? applySoftAndHardCap(globalTrack.tier - 1, 15, 35, 0.45) : 0;
+    const globalEffTiers = globalTrack ? applySoftAndHardCap(globalTrack.tier - 1, 15, UPGRADE_MAX_TIER, 0.45) : 0;
     const globalTrackMult = globalTrack ? safePow(globalTrack.effectMultiplier, globalEffTiers) : 1;
 
     const clickTrack = state.upgradeTracks.find((u) => u.id === 'trk_click');
-    const clickEffTiers = clickTrack ? applySoftAndHardCap(clickTrack.tier - 1, 15, 35, 0.45) : 0;
+    const clickEffTiers = clickTrack ? applySoftAndHardCap(clickTrack.tier - 1, 15, UPGRADE_MAX_TIER, 0.45) : 0;
     const clickTrackMult = clickTrack ? safePow(clickTrack.effectMultiplier, clickEffTiers) : 1;
 
     const totalBuildingsOwned = state.buildings.reduce((sum, b) => sum + b.count, 0);
     const synergyTrack = state.upgradeTracks.find((u) => u.id === 'trk_synergy');
-    const synergyTier = synergyTrack ? applySoftAndHardCap(synergyTrack.tier - 1, 15, 35, 0.45) : 0;
+    const synergyTier = synergyTrack ? applySoftAndHardCap(synergyTrack.tier - 1, 15, UPGRADE_MAX_TIER, 0.45) : 0;
     const synergyMult = applySoftAndHardCap(
       1 + synergyTier * 0.05 * Math.floor(totalBuildingsOwned / 10),
       10,
@@ -538,7 +618,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       0.45
     );
 
-    // 7. Total Buildings CPS — every 25 of a building multiplies its output by 2!
+    // 7. Total Buildings CPS — every 25 owned multiplies by 2x
     let rawBuildingsCps = 0;
     const buildingCpsMap: Record<string, number> = {};
 
@@ -547,17 +627,17 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       safeMul(
         safeMul(skRootAllMult, skVanguardMult),
         safeMul(
-          safeMul(rebirthLevelMult, prestigePointsCoinMult),
-          safeMul(rpCurve.multiplier, safeMul(clickerGlobalCoinBoost, coreCoinMult))
+          safeMul(rebirthLevelMult, prestigeLevelCoinMult),
+          safeMul(coinCascadeMult, safeMul(clickerGlobalCoinBoost, coreCoinMult))
         )
       )
     );
 
     for (const b of state.buildings) {
       const bTrack = state.upgradeTracks.find((u) => u.targetBuildingId === b.id);
-      const bEffTiers = bTrack ? applySoftAndHardCap(bTrack.tier - 1, 15, 35, 0.45) : 0;
+      const bEffTiers = bTrack ? applySoftAndHardCap(bTrack.tier - 1, 15, UPGRADE_MAX_TIER, 0.45) : 0;
       const bTrackMult = bTrack ? safePow(bTrack.effectMultiplier, bEffTiers) : 1;
-      const milestone25Mult = safePow(2, Math.floor(b.count / 25)); // Every 25 multiplies by 2x!
+      const milestone25Mult = safePow(2, Math.floor(b.count / 25));
       const bulkSelfMult = applySoftAndHardCap(1 + b.count * bulkPerBldgPct, 25, 250, 0.45);
       const singleCps = safeMul(
         safeMul(b.baseCps, safeMul(safeMul(bTrackMult, milestone25Mult), bulkSelfMult)),
@@ -565,7 +645,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       );
       buildingCpsMap[b.id] = singleCps;
       if (b.count > 0) {
-        rawBuildingsCps = clampGoogol(rawBuildingsCps + safeMul(singleCps, b.count));
+        rawBuildingsCps = safeNum(rawBuildingsCps + safeMul(singleCps, b.count));
       }
     }
 
@@ -577,7 +657,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     );
     const coinsPerSecond = safeMul(rawBuildingsCps, gameSpeedMultiplier);
 
-    // 8. Manual Click Value (strictly 1 at fresh game start!)
+    // 8. Manual Click Value (Strictly 1 at fresh game start!)
     const midasShare = safeMul(
       applySoftAndHardCap((getPrestigeUpg('pu_midas')?.totalBonus ?? 0) / 100, 5, 50, 0.45),
       coinsPerSecond
@@ -585,36 +665,40 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const baseClick = safeMul(
       safeMul(safeMul(clickTrackMult, rebirthTapperMult), safeMul(clickerTotalPowerMult, rebirthLevelMult)),
       safeMul(
-        safeMul(prestigePointsCoinMult, rpCurve.multiplier),
+        safeMul(prestigeLevelCoinMult, coinCascadeMult),
         safeMul(safeMul(skRootAllMult, skVanguardMult), coreCoinMult)
       )
     );
-    const coinsPerClick = clampGoogol(Math.max(1, baseClick + midasShare));
+    const coinsPerClick = safeNum(Math.max(1, baseClick + midasShare));
 
     const critChance = applySoftAndHardCap((getPrestigeUpg('pu_crit')?.totalBonus ?? 0) / 100, 0.5, 0.75, 0.5);
     const critMultiplier = applySoftAndHardCap(6 + (getSkill('sk_supercrit')?.totalBonus ?? 0), 30, 150, 0.45);
 
     // 9. Passive Cross-Layer Generators
-    // 9a. RP/sec (Rebirth Conduit) boosted by Prestige Points -> RP curve
+    // 9a. RP/sec boosted by PP, TP, Essence & Time Tokens
     const conduitBaseRpSec = getPrestigeUpg('pu_conduit')?.totalBonus ?? 0;
     const skFountainMult = applySoftAndHardCap(1 + (getSkill('sk_fountain')?.totalBonus ?? 0) / 100, 1e4, 1e8, 0.45);
     const primordialRpMult = 1 + (getSingUpg('su_primordial')?.totalLevels ?? 0) * 5;
     const rpPerSecond = safeMul(
       safeMul(conduitBaseRpSec, safeMul(skFountainMult, skRootAllMult)),
-      safeMul(safeMul(skVanguardMult, primordialRpMult), safeMul(safeMul(coreRpMult, ppToRpCurve.multiplier), gameSpeedMultiplier))
+      safeMul(safeMul(skVanguardMult, primordialRpMult), safeMul(safeMul(coreRpMult, rpCascadeMult), gameSpeedMultiplier))
     );
 
-    // 9b. Prestige Points/sec (Skill Tree `sk_prestige_gen`) boosted by Tree Points -> PP curve
+    // 9b. PP/sec boosted by TP, Essence & Time Tokens
     const skillPpGenBase = getSkill('sk_prestige_gen')?.totalBonus ?? 0;
     const ppPerSecond = safeMul(
-      safeMul(skillPpGenBase, safeMul(tpToPpCurve.multiplier, timeTokenMult)),
+      safeMul(skillPpGenBase, safeMul(ppCascadeMult, timeTokenMult)),
       safeMul(safeMul(skVanguardMult, suDarkEnergyBoost), corePpMult)
     );
 
-    // 9c. Tree Points/sec (Singularity `su_tree_gen`: +1 TP/s per level) boosted by Essence -> TP curve
-    const singTpGenBase = getSingUpg('su_tree_gen')?.totalBonus ?? 0;
+    // 9c. TP/sec (`su_tree_gen` scales UP with each level: totalBonus * 1.5^(levels-1)) boosted by Essence & Time Tokens
+    const suTreeGen = getSingUpg('su_tree_gen');
+    const singTpGenBase =
+      suTreeGen && suTreeGen.totalLevels > 0
+        ? safeMul(suTreeGen.totalBonus, safePow(1.5, Math.max(0, suTreeGen.totalLevels - 1)))
+        : 0;
     const tpPerSecond = safeMul(
-      safeMul(singTpGenBase, safeMul(essenceToTpCurve.multiplier, timeTokenMult)),
+      safeMul(singTpGenBase, safeMul(tpCascadeMult, timeTokenMult)),
       safeMul(coreTpMult, suDarkEnergyBoost)
     );
 
@@ -629,10 +713,11 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           )
         : 0;
 
-    // 10. Auto-Clicks/sec
+    // 10. Auto-Clicks/sec (Includes Code Auto-Clicker from "clicker" code!)
     const autoPulseClicks = applySoftAndHardCap(getRebirthPerk('rp_autopulse')?.totalBonus ?? 0, 50, 250, 0.45);
     const companionClicks = clickerEvolution.companionCount * (1 + (getSkill('sk_clicker')?.totalLevels ?? 0) * 0.5);
-    const autoClicksPerSecond = safeMul(autoPulseClicks + companionClicks, gameSpeedMultiplier);
+    const codeAutoClicks = state.codeClickerUnlocked && state.codeClickerEnabled ? 5 : 0;
+    const autoClicksPerSecond = safeMul(autoPulseClicks + companionClicks + codeAutoClicks, gameSpeedMultiplier);
 
     // 11. Coin Core Multi-Buy (NO level cap, 1.1x cost scale!)
     const effectiveClickerScale = getEffectiveScale(CLICKER_COST_SCALE, globalScaleReduction);
@@ -650,14 +735,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           effectiveClickerScale,
           state.clickerLevel - 1,
           coinCoreMulti,
-          1000
+          1000,
+          hardCostMult
         );
 
-    // 12. Rebirth Multi-Buy (Coins -> Rebirth Points boosted by PP->RP curve!)
+    // 12. Rebirth Multi-Buy
     const effectiveRebirthScale = getEffectiveScale(REBIRTH_COST_SCALE, globalScaleReduction);
     const nextRebirthSingleCost = free
       ? 0
-      : getRebirthLevelCost(REBIRTH_BASE_COST, effectiveRebirthScale, state.rebirthLevel);
+      : safeNum(Math.floor(getRebirthLevelCost(REBIRTH_BASE_COST, effectiveRebirthScale, state.rebirthLevel) * hardCostMult));
     const rebirthBuyInfo = free
       ? {
           count: state.multiBuyBySection.rebirth === -1 ? 5 : state.multiBuyBySection.rebirth,
@@ -672,12 +758,13 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             effectiveRebirthScale,
             state.rebirthLevel,
             state.multiBuyBySection.rebirth,
-            50
+            50,
+            hardCostMult
           )
         : {
             count: 1,
             totalCost: nextRebirthSingleCost,
-            canAfford: state.coins >= nextRebirthSingleCost && nextRebirthSingleCost < GOOGOL,
+            canAfford: state.coins >= nextRebirthSingleCost && nextRebirthSingleCost < FLOAT_SAFE_MAX,
             nextSingleCost: nextRebirthSingleCost
           };
 
@@ -688,7 +775,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       0.45
     );
     const rpGainMultiplier = safeMul(
-      safeMul(crucibleMult, ppToRpCurve.multiplier),
+      safeMul(crucibleMult, rpCascadeMult),
       safeMul(skRootAllMult, safeMul(skVanguardMult, safeMul(coreRpMult, timeTokenMult)))
     );
 
@@ -696,7 +783,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     if (rebirthBuyInfo.canAfford) {
       let stepSum = 0;
       for (let i = 0; i < rebirthBuyInfo.count; i++) {
-        stepSum = clampGoogol(
+        stepSum = safeNum(
           stepSum + Math.max(1, Math.floor(safeMul(1 + (state.rebirthLevel + i) * 0.65, rpGainMultiplier)))
         );
       }
@@ -705,14 +792,14 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         1,
         Math.floor(safeMul(safePow(ratio, 0.48), safeMul(1 + state.rebirthLevel * 0.65, rpGainMultiplier)))
       );
-      projectedRebirthRpGain = clampGoogol(Math.max(stepSum, surplusBonus));
+      projectedRebirthRpGain = safeNum(Math.max(stepSum, surplusBonus));
     }
 
-    // 13. Prestige Multi-Buy (Costs 1,000,000 Rebirth Points!)
+    // 13. Prestige Multi-Buy
     const effectivePrestigeScale = getEffectiveScale(PRESTIGE_RP_SCALE, globalScaleReduction);
     const nextPrestigeSingleCost = free
       ? 0
-      : getLevelCost(PRESTIGE_BASE_RP_COST, effectivePrestigeScale, state.prestigeLevel);
+      : getLevelCost(PRESTIGE_BASE_RP_COST, effectivePrestigeScale, state.prestigeLevel, hardCostMult);
     const prestigeBuyInfo = free
       ? {
           count: state.multiBuyBySection.prestige === -1 ? 5 : state.multiBuyBySection.prestige,
@@ -727,18 +814,19 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             effectivePrestigeScale,
             state.prestigeLevel,
             state.multiBuyBySection.prestige,
-            50
+            50,
+            hardCostMult
           )
         : {
             count: 1,
             totalCost: nextPrestigeSingleCost,
             canAfford:
-              state.rebirthPoints >= nextPrestigeSingleCost && nextPrestigeSingleCost < GOOGOL,
+              state.rebirthPoints >= nextPrestigeSingleCost && nextPrestigeSingleCost < FLOAT_SAFE_MAX,
             nextSingleCost: nextPrestigeSingleCost
           };
 
     const ppGainMult = safeMul(
-      safeMul(tpToPpCurve.multiplier, timeTokenMult),
+      safeMul(ppCascadeMult, timeTokenMult),
       safeMul(safeMul(skVanguardMult, suDarkEnergyBoost), corePpMult)
     );
     let projectedPrestigePointsGain = 0;
@@ -746,7 +834,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       for (let i = 0; i < prestigeBuyInfo.count; i++) {
         const pTier = state.prestigeLevel + i;
         const expTierBoost = safePow(10, Math.floor(pTier / 3) + (pTier >= 4 ? (pTier - 3) * 0.55 : 0));
-        projectedPrestigePointsGain = clampGoogol(
+        projectedPrestigePointsGain = safeNum(
           projectedPrestigePointsGain +
             Math.max(1, Math.floor(safeMul(safeMul(1 + pTier * 1.5, expTierBoost), ppGainMult)))
         );
@@ -755,12 +843,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         const surplusPp = Math.floor(
           safeMul(safePow(state.rebirthPoints / prestigeBuyInfo.nextSingleCost, 0.4), ppGainMult)
         );
-        projectedPrestigePointsGain = clampGoogol(Math.max(projectedPrestigePointsGain, surplusPp));
+        projectedPrestigePointsGain = safeNum(Math.max(projectedPrestigePointsGain, surplusPp));
       }
     }
 
-    // 14. Skill Tree Reset (Costs 1,000,000,000 = 1 Billion Prestige Points per Tree Point!)
+    // 14. Skill Tree Reset
     const treeMulti = state.multiBuyBySection.skillTree;
+    const nextTreeSingleCost = free
+      ? 0
+      : getLevelCost(TREE_POINT_BASE_PP_COST, 1.5, state.treeResetCount, hardCostMult);
     const treeBuyInfo = free
       ? {
           count: treeMulti === -1 ? 5 : treeMulti,
@@ -775,23 +866,22 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             1.5,
             state.treeResetCount,
             treeMulti,
-            50
+            50,
+            hardCostMult
           )
         : {
             count: 1,
-            totalCost: getLevelCost(TREE_POINT_BASE_PP_COST, 1.5, state.treeResetCount),
-            canAfford:
-              state.prestigePoints >=
-              getLevelCost(TREE_POINT_BASE_PP_COST, 1.5, state.treeResetCount),
-            nextSingleCost: getLevelCost(TREE_POINT_BASE_PP_COST, 1.5, state.treeResetCount)
+            totalCost: nextTreeSingleCost,
+            canAfford: state.prestigePoints >= nextTreeSingleCost && nextTreeSingleCost < FLOAT_SAFE_MAX,
+            nextSingleCost: nextTreeSingleCost
           };
 
     const tpGainMult = safeMul(
-      safeMul(essenceToTpCurve.multiplier, timeTokenMult),
+      safeMul(tpCascadeMult, timeTokenMult),
       safeMul(safeMul(skVanguardMult, suDarkEnergyBoost), coreTpMult)
     );
     const projectedTreePointsGain = treeBuyInfo.canAfford
-      ? clampGoogol(
+      ? safeNum(
           Math.max(
             treeBuyInfo.count,
             Math.floor(
@@ -807,12 +897,14 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         )
       : 0;
 
-    // 15. Singularity Reset (Costs 1B Tree Points, 10x per purchase, ONLY 1 at a time! Grants +1 Essence per count!)
+    // 15. Singularity Reset (ONLY 1 at a time)
     const singularityCost = free
       ? 0
-      : getLevelCost(SINGULARITY_BASE_TP_COST, SINGULARITY_TP_SCALE, state.singularityCount);
-    const canSingularity = free ? true : state.treePoints >= singularityCost && singularityCost < GOOGOL;
-    const projectedEssenceGain = state.singularityCount + 1; // 1st gives 1, 2nd gives 2, 3rd gives 3 (+1 for each time you do it!)
+      : getLevelCost(SINGULARITY_BASE_TP_COST, SINGULARITY_TP_SCALE, state.singularityCount, hardCostMult);
+    const canSingularity = free ? true : state.treePoints >= singularityCost && singularityCost < FLOAT_SAFE_MAX;
+    const projectedEssenceGain = safeNum(
+      Math.max(state.singularityCount + 1, Math.floor(safeMul(state.singularityCount + 1, timeTokenMult)))
+    );
 
     // Essence Reactor preview
     const reactorRemaining = Math.max(0, ESSENCE_REACTOR_MAX_LEVEL - state.essenceReactorLevel);
@@ -829,56 +921,76 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           getEffectiveScale(ESSENCE_REACTOR_COST_SCALE, globalScaleReduction),
           state.essenceReactorLevel,
           state.multiBuyBySection.singularity,
-          reactorRemaining
+          reactorRemaining,
+          hardCostMult
         );
 
+    // Singularity Core Level-Up (Max Level 100!)
     const effectiveCoreScale = getEffectiveScale(1.85, globalScaleReduction);
-    const singularityCoreBuyInfo = free
-      ? {
-          count: state.multiBuyBySection.singularity === -1 ? 5 : state.multiBuyBySection.singularity,
-          totalCost: 0,
-          canAfford: true,
-          nextSingleCost: 0
-        }
-      : activeTab === 'singularity'
-        ? calculateMultiBuy(
-            state.singularityEssence,
-            1,
-            effectiveCoreScale,
-            state.singularityCoreLevel,
-            state.multiBuyBySection.singularity,
-            100
-          )
-        : {
-            count: 1,
-            totalCost: getLevelCost(1, effectiveCoreScale, state.singularityCoreLevel),
-            canAfford:
-              state.singularityEssence >= getLevelCost(1, effectiveCoreScale, state.singularityCoreLevel),
-            nextSingleCost: getLevelCost(1, effectiveCoreScale, state.singularityCoreLevel)
-          };
+    const coreRemaining = Math.max(0, SINGULARITY_CORE_MAX_LEVEL - coreLevel);
+    const nextCoreSingleCost = free
+      ? 0
+      : getLevelCost(1, effectiveCoreScale, coreLevel, hardCostMult);
+    const singularityCoreBuyInfo =
+      coreRemaining <= 0
+        ? { count: 0, totalCost: 0, canAfford: false, nextSingleCost: 0 }
+        : free
+          ? {
+              count: Math.min(
+                coreRemaining,
+                state.multiBuyBySection.singularity === -1 ? 10 : state.multiBuyBySection.singularity
+              ),
+              totalCost: 0,
+              canAfford: true,
+              nextSingleCost: 0
+            }
+          : activeTab === 'singularity'
+            ? calculateMultiBuy(
+                state.singularityEssence,
+                1,
+                effectiveCoreScale,
+                coreLevel,
+                state.multiBuyBySection.singularity,
+                coreRemaining,
+                hardCostMult
+              )
+            : {
+                count: 1,
+                totalCost: nextCoreSingleCost,
+                canAfford: state.singularityEssence >= nextCoreSingleCost && nextCoreSingleCost < FLOAT_SAFE_MAX,
+                nextSingleCost: nextCoreSingleCost
+              };
 
-    // 16. Time Reset (1M Singularity Essence -> Time Tokens + 50% Coin Flip Gamble!)
-    const canTimeReset = free ? true : state.singularityEssence >= TIME_RESET_ESSENCE_COST;
+    // 16. Time Reset & Coin Odds (+5% per level, 50% -> 80% max)
+    const timeResetRequiredEssence = free ? 0 : safeNum(TIME_RESET_ESSENCE_COST * hardCostMult);
+    const canTimeReset = free ? true : state.singularityEssence >= timeResetRequiredEssence;
     const projectedTimeTokens = canTimeReset
-      ? Math.max(1, Math.floor(Math.pow(Math.max(1, state.singularityEssence / TIME_RESET_ESSENCE_COST), 0.5)))
+      ? Math.max(1, Math.floor(Math.pow(Math.max(1, state.singularityEssence / Math.max(1, timeResetRequiredEssence)), 0.5)))
       : 0;
-    const timeFlipWinChance = Math.min(1.0, 0.5 + state.timeFlipChanceLevel * 0.1);
-    const timeFlipRemaining = Math.max(0, 5 - state.timeFlipChanceLevel); // 50% -> 100% max
-    const timeFlipBuyInfo = free
-      ? {
-          count: Math.min(timeFlipRemaining, state.multiBuyBySection.timeReset === -1 ? 5 : state.multiBuyBySection.timeReset),
-          totalCost: 0,
-          canAfford: timeFlipRemaining > 0,
-          nextSingleCost: 0
-        }
-      : calculateMultiBuy(
-          state.timeTokens,
-          TIME_FLIP_BASE_COST,
-          TIME_FLIP_COST_SCALE,
-          state.timeFlipChanceLevel,
-          state.multiBuyBySection.timeReset,
-          timeFlipRemaining
-        );
+    const timeFlipWinChance = Math.min(0.8, 0.5 + state.timeFlipChanceLevel * 0.05);
+    const timeFlipRemaining = Math.max(0, TIME_FLIP_MAX_LEVEL - state.timeFlipChanceLevel);
+    const timeFlipBuyInfo =
+      timeFlipRemaining <= 0
+        ? { count: 0, totalCost: 0, canAfford: false, nextSingleCost: 0 }
+        : free
+          ? {
+              count: Math.min(
+                timeFlipRemaining,
+                state.multiBuyBySection.timeReset === -1 ? TIME_FLIP_MAX_LEVEL : state.multiBuyBySection.timeReset
+              ),
+              totalCost: 0,
+              canAfford: true,
+              nextSingleCost: 0
+            }
+          : calculateMultiBuy(
+              state.timeTokens,
+              TIME_FLIP_BASE_COST,
+              TIME_FLIP_COST_SCALE,
+              state.timeFlipChanceLevel,
+              state.multiBuyBySection.timeReset,
+              timeFlipRemaining,
+              hardCostMult
+            );
 
     // 17. Separate Singularity Automations
     const hasAutoBuildings = (getSingUpg('su_auto_buildings')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
@@ -887,6 +999,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const hasAutoClicker = (getSingUpg('su_auto_clicker')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
 
     return {
+      hardCostMult,
       timeTokenMult,
       boostCapCeiling,
       globalScaleReduction,
@@ -900,6 +1013,10 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       ppToRpCurve,
       tpToPpCurve,
       essenceToTpCurve,
+      coinCascadeMult,
+      rpCascadeMult,
+      ppCascadeMult,
+      tpCascadeMult,
       clickerEvolution,
       nextClickerEvolution,
       clickerTotalPowerMult,
@@ -915,6 +1032,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       rpPerSecond,
       ppPerSecond,
       tpPerSecond,
+      singTpGenBase,
       essencePerSecond,
       reactorUnlocked,
       reactorBuyInfo,
@@ -932,6 +1050,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       projectedEssenceGain,
       effectiveCoreScale,
       singularityCoreBuyInfo,
+      timeResetRequiredEssence,
       canTimeReset,
       projectedTimeTokens,
       timeFlipWinChance,
@@ -943,9 +1062,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       hasAutoRebirth,
       hasAutoClicker,
       retainedCoinPct: applySoftAndHardCap((getRebirthPerk('rp_retainer')?.totalBonus ?? 0) / 100, 0.55, 0.8, 0.5),
-      startingTreasury: clampGoogol(getRebirthPerk('rp_treasury')?.totalBonus ?? 0),
+      startingTreasury: safeNum(getRebirthPerk('rp_treasury')?.totalBonus ?? 0),
       keptRebirthLevels: Math.floor(getPrestigeUpg('pu_memory')?.totalBonus ?? 0),
-      primordialStartRp: clampGoogol(getSingUpg('su_primordial')?.totalBonus ?? 0)
+      primordialStartRp: safeNum(getSingUpg('su_primordial')?.totalBonus ?? 0)
     };
   }, [state, activeTab]);
 
@@ -963,23 +1082,23 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       setState((prev) => {
         const passiveGain = safeMul(s.coinsPerSecond, dt);
         const autoClickGain = safeMul(safeMul(s.autoClicksPerSecond, s.coinsPerClick), dt);
-        const totalCoinGain = clampGoogol(passiveGain + autoClickGain);
+        const totalCoinGain = safeNum(passiveGain + autoClickGain);
 
         const rpGain = safeMul(s.rpPerSecond, dt);
         const ppGain = safeMul(s.ppPerSecond, dt);
         const tpGain = safeMul(s.tpPerSecond, dt);
         const essenceGain = safeMul(s.essencePerSecond, dt);
 
-        let nextCoins = clampGoogol(prev.coins + totalCoinGain);
-        const nextLifetimeCoins = clampGoogol(prev.lifetimeCoins + totalCoinGain);
-        let nextRp = clampGoogol(prev.rebirthPoints + rpGain);
-        const nextLifetimeRp = clampGoogol(prev.lifetimeRebirthPoints + rpGain);
-        const nextPp = clampGoogol(prev.prestigePoints + ppGain);
-        const nextLifetimePp = clampGoogol(prev.lifetimePrestigePoints + ppGain);
-        const nextTp = clampGoogol(prev.treePoints + tpGain);
-        const nextLifetimeTp = clampGoogol(prev.lifetimeTreePoints + tpGain);
-        const nextEssence = clampGoogol(prev.singularityEssence + essenceGain);
-        const nextLifetimeEssence = clampGoogol(prev.lifetimeSingularityEssence + essenceGain);
+        let nextCoins = safeNum(prev.coins + totalCoinGain);
+        const nextLifetimeCoins = safeNum(prev.lifetimeCoins + totalCoinGain);
+        let nextRp = safeNum(prev.rebirthPoints + rpGain);
+        const nextLifetimeRp = safeNum(prev.lifetimeRebirthPoints + rpGain);
+        const nextPp = safeNum(prev.prestigePoints + ppGain);
+        const nextLifetimePp = safeNum(prev.lifetimePrestigePoints + ppGain);
+        const nextTp = safeNum(prev.treePoints + tpGain);
+        const nextLifetimeTp = safeNum(prev.lifetimeTreePoints + tpGain);
+        const nextEssence = safeNum(prev.singularityEssence + essenceGain);
+        const nextLifetimeEssence = safeNum(prev.lifetimeSingularityEssence + essenceGain);
 
         let nextBuildings = prev.buildings;
         let nextTracks = prev.upgradeTracks;
@@ -987,6 +1106,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         let nextClickerLevel = prev.clickerLevel;
         let nextCompletedUpgrades = prev.completedUpgradeCount;
         let nextCompletedPerkTiers = prev.completedPerkTiersCount;
+        const hardMult = prev.hardMode ? 10 : 1;
 
         if (tickCounter % 2 === 0 && !prev.adminFreeMode) {
           if (s.hasAutoBuildings && prev.automation.autoBuyBuildings) {
@@ -995,9 +1115,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
               if (prev.automation.buildingAutoBuyEnabled[b.id] === false) return b;
               if (nextLifetimeCoins < b.unlockCoins && b.count === 0) return b;
               const effScale = getEffectiveScale(b.scaleFactor, s.globalScaleReduction);
-              const cost = getLevelCost(b.baseCost, effScale, b.count, s.buildingDiscountMult);
-              if (cost < GOOGOL && nextCoins >= cost) {
-                nextCoins = clampGoogol(nextCoins - cost);
+              const cost = getLevelCost(b.baseCost, effScale, b.count, s.buildingDiscountMult * hardMult);
+              if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
+                nextCoins = safeNum(nextCoins - cost);
                 changed = true;
                 return { ...b, count: b.count + 1 };
               }
@@ -1011,9 +1131,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             const mapped = prev.upgradeTracks.map((trk) => {
               if (trk.tier >= trk.maxTier) return trk;
               const effScale = getEffectiveScale(trk.costScale, s.globalScaleReduction);
-              const cost = getLevelCost(trk.baseCost, effScale, trk.tier - 1);
-              if (cost < GOOGOL && nextCoins >= cost) {
-                nextCoins = clampGoogol(nextCoins - cost);
+              const cost = getLevelCost(trk.baseCost, effScale, trk.tier - 1, hardMult);
+              if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
+                nextCoins = safeNum(nextCoins - cost);
                 nextCompletedUpgrades += 1;
                 changed = true;
                 return { ...trk, tier: trk.tier + 1 };
@@ -1027,9 +1147,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             let changed = false;
             const mapped = prev.rebirthPerks.map((perk) => {
               if (isTieredItemMaxed(perk)) return perk;
-              const res = applyTieredPurchase(perk, nextRp, 1, s.globalScaleReduction, false);
+              const res = applyTieredPurchase(perk, nextRp, 1, s.globalScaleReduction, false, hardMult);
               if (res.bought > 0) {
-                nextRp = clampGoogol(nextRp - res.spent);
+                nextRp = safeNum(nextRp - res.spent);
                 nextCompletedPerkTiers += res.evolutions;
                 changed = true;
                 return res.updated;
@@ -1041,9 +1161,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
           if (s.hasAutoClicker && prev.automation.autoLevelClicker) {
             const effClickerScale = getEffectiveScale(CLICKER_COST_SCALE, s.globalScaleReduction);
-            const cost = getLevelCost(CLICKER_BASE_COST, effClickerScale, nextClickerLevel - 1);
-            if (cost < GOOGOL && nextCoins >= cost) {
-              nextCoins = clampGoogol(nextCoins - cost);
+            const cost = getLevelCost(CLICKER_BASE_COST, effClickerScale, nextClickerLevel - 1, hardMult);
+            if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
+              nextCoins = safeNum(nextCoins - cost);
               nextClickerLevel += 1;
             }
           }
@@ -1074,6 +1194,47 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     return () => window.clearInterval(interval);
   }, []);
 
+  const createSaveState = useCallback((customName?: string, isAutoBackup = false): SaveStateEntry => {
+    const snap = JSON.parse(JSON.stringify(stateRef.current)) as GameState;
+    const summary = `${formatNum(snap.coins, snap.notation)} Coins · R${snap.rebirthLevel} · P${snap.prestigeLevel} · S${snap.singularityCount} · T${snap.timeResetCount}`;
+    const entry: SaveStateEntry = {
+      id: `save_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      name: customName?.trim() || (isAutoBackup ? 'Pre-Admin Auto-Backup' : `Save Slot`),
+      createdAt: Date.now(),
+      isAutoBackup,
+      summary,
+      data: snap
+    };
+    setSaveStates((prev) => {
+      const next = [entry, ...prev].slice(0, 30);
+      persistSaveStatesList(next);
+      return next;
+    });
+    return entry;
+  }, []);
+
+  const loadSaveState = useCallback((id: string): boolean => {
+    const found = saveStates.find((s) => s.id === id);
+    if (!found) return false;
+    const normalized = normalizeState(found.data);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    } catch {
+      // Ignore
+    }
+    setState(normalized);
+    sounds.playLevelUp();
+    return true;
+  }, [saveStates]);
+
+  const deleteSaveState = useCallback((id: string) => {
+    setSaveStates((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      persistSaveStatesList(next);
+      return next;
+    });
+  }, []);
+
   const handleManualClick = useCallback((): { amount: number; isCrit: boolean } => {
     const s = statsRef.current;
     const isCrit = Math.random() < s.critChance;
@@ -1082,8 +1243,8 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
     setState((prev) => ({
       ...prev,
-      coins: clampGoogol(prev.coins + amount),
-      lifetimeCoins: clampGoogol(prev.lifetimeCoins + amount),
+      coins: safeNum(prev.coins + amount),
+      lifetimeCoins: safeNum(prev.lifetimeCoins + amount),
       totalClicks: prev.totalClicks + 1
     }));
 
@@ -1109,6 +1270,10 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
   const toggleSound = useCallback(() => {
     setState((prev) => ({ ...prev, soundEnabled: !prev.soundEnabled }));
+  }, []);
+
+  const toggleCodeClicker = useCallback(() => {
+    setState((prev) => ({ ...prev, codeClickerEnabled: !prev.codeClickerEnabled }));
   }, []);
 
   const toggleAutomation = useCallback(
@@ -1157,7 +1322,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
     setState((prev) => ({
       ...prev,
-      coins: prev.adminFreeMode ? prev.coins : clampGoogol(prev.coins - info.totalCost),
+      coins: prev.adminFreeMode ? prev.coins : safeNum(prev.coins - info.totalCost),
       clickerLevel: prev.clickerLevel + info.count
     }));
   }, []);
@@ -1178,14 +1343,14 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           b.count,
           multi,
           250,
-          s.buildingDiscountMult
+          s.buildingDiscountMult * s.hardCostMult
         );
     if (!info.canAfford || info.count <= 0) return;
 
     sounds.playBuy();
     setState((prev) => ({
       ...prev,
-      coins: prev.adminFreeMode ? prev.coins : clampGoogol(prev.coins - info.totalCost),
+      coins: prev.adminFreeMode ? prev.coins : safeNum(prev.coins - info.totalCost),
       buildings: prev.buildings.map((item) =>
         item.id === buildingId ? { ...item, count: item.count + info.count } : item
       )
@@ -1202,13 +1367,21 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const effScale = getEffectiveScale(trk.costScale, s.globalScaleReduction);
     const info = free
       ? { count: Math.min(remaining, multi === -1 ? 10 : multi), totalCost: 0, canAfford: remaining > 0 }
-      : calculateMultiBuy(stateRef.current.coins, trk.baseCost, effScale, trk.tier - 1, multi, remaining);
+      : calculateMultiBuy(
+          stateRef.current.coins,
+          trk.baseCost,
+          effScale,
+          trk.tier - 1,
+          multi,
+          remaining,
+          s.hardCostMult
+        );
     if (!info.canAfford || info.count <= 0) return;
 
     sounds.playBuy();
     setState((prev) => ({
       ...prev,
-      coins: prev.adminFreeMode ? prev.coins : clampGoogol(prev.coins - info.totalCost),
+      coins: prev.adminFreeMode ? prev.coins : safeNum(prev.coins - info.totalCost),
       completedUpgradeCount: prev.completedUpgradeCount + info.count,
       upgradeTracks: prev.upgradeTracks.map((u) =>
         u.id === trackId ? { ...u, tier: Math.min(u.maxTier, u.tier + info.count) } : u
@@ -1226,14 +1399,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         prev.rebirthPoints,
         prev.multiBuyBySection.rebirth,
         s.globalScaleReduction,
-        prev.adminFreeMode
+        prev.adminFreeMode,
+        s.hardCostMult
       );
       if (res.bought <= 0) return prev;
       if (res.evolutions > 0) sounds.playLevelUp();
       else sounds.playBuy();
       return {
         ...prev,
-        rebirthPoints: prev.adminFreeMode ? prev.rebirthPoints : clampGoogol(prev.rebirthPoints - res.spent),
+        rebirthPoints: prev.adminFreeMode ? prev.rebirthPoints : safeNum(prev.rebirthPoints - res.spent),
         completedPerkTiersCount: prev.completedPerkTiersCount + res.evolutions,
         rebirthPerks: prev.rebirthPerks.map((p) => (p.id === perkId ? res.updated : p))
       };
@@ -1250,14 +1424,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         prev.prestigePoints,
         prev.multiBuyBySection.prestige,
         s.globalScaleReduction,
-        prev.adminFreeMode
+        prev.adminFreeMode,
+        s.hardCostMult
       );
       if (res.bought <= 0) return prev;
       if (res.evolutions > 0) sounds.playLevelUp();
       else sounds.playBuy();
       return {
         ...prev,
-        prestigePoints: prev.adminFreeMode ? prev.prestigePoints : clampGoogol(prev.prestigePoints - res.spent),
+        prestigePoints: prev.adminFreeMode ? prev.prestigePoints : safeNum(prev.prestigePoints - res.spent),
         completedPerkTiersCount: prev.completedPerkTiersCount + res.evolutions,
         prestigeUpgrades: prev.prestigeUpgrades.map((p) => (p.id === upgradeId ? res.updated : p))
       };
@@ -1286,14 +1461,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           prev.treePoints,
           prev.multiBuyBySection.skillTree,
           s.globalScaleReduction,
-          prev.adminFreeMode
+          prev.adminFreeMode,
+          s.hardCostMult
         );
         if (res.bought <= 0) return prev;
         if (res.evolutions > 0) sounds.playLevelUp();
         else sounds.playBuy();
         return {
           ...prev,
-          treePoints: prev.adminFreeMode ? prev.treePoints : clampGoogol(prev.treePoints - res.spent),
+          treePoints: prev.adminFreeMode ? prev.treePoints : safeNum(prev.treePoints - res.spent),
           completedPerkTiersCount: prev.completedPerkTiersCount + res.evolutions,
           skillNodes: prev.skillNodes.map((n) => (n.id === nodeId ? res.updated : n))
         };
@@ -1306,14 +1482,15 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const s = statsRef.current;
     const info = s.singularityCoreBuyInfo;
     if (!info.canAfford || info.count <= 0) return;
+    if (stateRef.current.singularityCoreLevel >= SINGULARITY_CORE_MAX_LEVEL) return;
 
     sounds.playLevelUp();
     setState((prev) => ({
       ...prev,
       singularityEssence: prev.adminFreeMode
         ? prev.singularityEssence
-        : clampGoogol(prev.singularityEssence - info.totalCost),
-      singularityCoreLevel: prev.singularityCoreLevel + info.count
+        : safeNum(prev.singularityEssence - info.totalCost),
+      singularityCoreLevel: Math.min(SINGULARITY_CORE_MAX_LEVEL, prev.singularityCoreLevel + info.count)
     }));
   }, []);
 
@@ -1327,7 +1504,8 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         prev.singularityEssence,
         prev.multiBuyBySection.singularity,
         s.globalScaleReduction,
-        prev.adminFreeMode
+        prev.adminFreeMode,
+        s.hardCostMult
       );
       if (res.bought <= 0) return prev;
       if (res.evolutions > 0) sounds.playLevelUp();
@@ -1336,7 +1514,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         ...prev,
         singularityEssence: prev.adminFreeMode
           ? prev.singularityEssence
-          : clampGoogol(prev.singularityEssence - res.spent),
+          : safeNum(prev.singularityEssence - res.spent),
         completedPerkTiersCount: prev.completedPerkTiersCount + res.evolutions,
         singularityUpgrades: prev.singularityUpgrades.map((u) => (u.id === upgradeId ? res.updated : u))
       };
@@ -1351,7 +1529,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       ...prev,
       singularityEssence: prev.adminFreeMode
         ? prev.singularityEssence
-        : clampGoogol(prev.singularityEssence - s.reactorBuyInfo.totalCost),
+        : safeNum(prev.singularityEssence - s.reactorBuyInfo.totalCost),
       essenceReactorLevel: Math.min(ESSENCE_REACTOR_MAX_LEVEL, prev.essenceReactorLevel + s.reactorBuyInfo.count)
     }));
   }, []);
@@ -1360,20 +1538,29 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     const s = statsRef.current;
     if (!s.rebirthBuyInfo.canAfford || s.rebirthBuyInfo.count <= 0) return;
 
+    const shouldShowPopup = !stateRef.current.firstRebirthPopupShown;
     sounds.playRebirth();
     setState((prev) => {
-      const keptCoins = clampGoogol(Math.floor(prev.coins * s.retainedCoinPct) + s.startingTreasury);
+      const keptCoins = safeNum(Math.floor(prev.coins * s.retainedCoinPct) + s.startingTreasury);
       return {
         ...prev,
         coins: keptCoins,
         clickerLevel: 1,
         rebirthLevel: prev.rebirthLevel + s.rebirthBuyInfo.count,
-        rebirthPoints: clampGoogol(prev.rebirthPoints + s.projectedRebirthRpGain),
-        lifetimeRebirthPoints: clampGoogol(prev.lifetimeRebirthPoints + s.projectedRebirthRpGain),
+        rebirthPoints: safeNum(prev.rebirthPoints + s.projectedRebirthRpGain),
+        lifetimeRebirthPoints: safeNum(prev.lifetimeRebirthPoints + s.projectedRebirthRpGain),
         buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
-        upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u }))
+        upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
+        achievements: {
+          ...prev.achievements,
+          firstRebirth: true
+        },
+        firstRebirthPopupShown: true
       };
     });
+    if (shouldShowPopup) {
+      setFirstRebirthPopupOpen(true);
+    }
   }, []);
 
   const triggerPrestige = useCallback(() => {
@@ -1389,10 +1576,14 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       rebirthPoints: 0,
       rebirthPerks: INITIAL_REBIRTH_PERKS.map((p) => ({ ...p })),
       prestigeLevel: prev.prestigeLevel + s.prestigeBuyInfo.count,
-      prestigePoints: clampGoogol(prev.prestigePoints + s.projectedPrestigePointsGain),
-      lifetimePrestigePoints: clampGoogol(prev.lifetimePrestigePoints + s.projectedPrestigePointsGain),
+      prestigePoints: safeNum(prev.prestigePoints + s.projectedPrestigePointsGain),
+      lifetimePrestigePoints: safeNum(prev.lifetimePrestigePoints + s.projectedPrestigePointsGain),
       buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
-      upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u }))
+      upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
+      achievements: {
+        ...prev.achievements,
+        firstPrestige: true
+      }
     }));
   }, []);
 
@@ -1412,10 +1603,14 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       prestigePoints: 0,
       prestigeUpgrades: INITIAL_PRESTIGE_UPGRADES.map((p) => ({ ...p })),
       treeResetCount: prev.treeResetCount + s.treeBuyInfo.count,
-      treePoints: clampGoogol(prev.treePoints + s.projectedTreePointsGain),
-      lifetimeTreePoints: clampGoogol(prev.lifetimeTreePoints + s.projectedTreePointsGain),
+      treePoints: safeNum(prev.treePoints + s.projectedTreePointsGain),
+      lifetimeTreePoints: safeNum(prev.lifetimeTreePoints + s.projectedTreePointsGain),
       buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
-      upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u }))
+      upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
+      achievements: {
+        ...prev.achievements,
+        firstSkillTree: true
+      }
     }));
   }, []);
 
@@ -1441,12 +1636,12 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
       upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
       singularityCount: prev.singularityCount + 1,
-      singularityEssence: clampGoogol(prev.singularityEssence + s.projectedEssenceGain),
-      lifetimeSingularityEssence: clampGoogol(prev.lifetimeSingularityEssence + s.projectedEssenceGain)
+      singularityEssence: safeNum(prev.singularityEssence + s.projectedEssenceGain),
+      lifetimeSingularityEssence: safeNum(prev.lifetimeSingularityEssence + s.projectedEssenceGain)
     }));
   }, []);
 
-  // Time Reset with Optional 50% Coin Flip Gamble
+  // Time Reset with Optional Coin Flip Gamble
   const triggerTimeReset = useCallback((gambleFlip: boolean): { won: boolean; awarded: number } => {
     const s = statsRef.current;
     if (!s.canTimeReset) return { won: false, awarded: 0 };
@@ -1481,8 +1676,8 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
       upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
       timeResetCount: prev.timeResetCount + 1,
-      timeTokens: clampGoogol(prev.timeTokens + awarded),
-      lifetimeTimeTokens: clampGoogol(prev.lifetimeTimeTokens + awarded)
+      timeTokens: safeNum(prev.timeTokens + awarded),
+      lifetimeTimeTokens: safeNum(prev.lifetimeTimeTokens + awarded)
     }));
 
     return { won, awarded };
@@ -1491,29 +1686,90 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
   const buyTimeFlipUpgrade = useCallback(() => {
     const s = statsRef.current;
     if (!s.timeFlipBuyInfo.canAfford || s.timeFlipBuyInfo.count <= 0) return;
+    if (stateRef.current.timeFlipChanceLevel >= TIME_FLIP_MAX_LEVEL) return;
     sounds.playBuy();
     setState((prev) => ({
       ...prev,
       timeTokens: prev.adminFreeMode
         ? prev.timeTokens
-        : clampGoogol(prev.timeTokens - s.timeFlipBuyInfo.totalCost),
-      timeFlipChanceLevel: Math.min(5, prev.timeFlipChanceLevel + s.timeFlipBuyInfo.count)
+        : safeNum(prev.timeTokens - s.timeFlipBuyInfo.totalCost),
+      timeFlipChanceLevel: Math.min(TIME_FLIP_MAX_LEVEL, prev.timeFlipChanceLevel + s.timeFlipBuyInfo.count)
     }));
   }, []);
 
-  // Admin Panel ("bobdabuilder")
-  const unlockAdminWithCode = useCallback((code: string): boolean => {
-    if (code.trim().toLowerCase() === 'bobdabuilder') {
-      sounds.playLevelUp();
-      setState((prev) => ({
-        ...prev,
-        adminUnlocked: true,
-        adminFreeMode: true
-      }));
-      return true;
-    }
-    return false;
-  }, []);
+  // Unified Code Redeemer ("HARD", "clicker", "bobdabuilder")
+  const redeemCode = useCallback(
+    (rawCode: string): { ok: boolean; type?: 'hard' | 'clicker' | 'admin'; message: string } => {
+      const normalized = rawCode.trim();
+      const lower = normalized.toLowerCase();
+
+      if (normalized.toUpperCase() === 'HARD') {
+        sounds.playLevelUp();
+        if (stateRef.current.hardMode) {
+          return { ok: true, type: 'hard', message: 'HARD Mode (10x prices) is already active!' };
+        }
+        setState((prev) => ({ ...prev, hardMode: true }));
+        return {
+          ok: true,
+          type: 'hard',
+          message: 'HARD Mode enabled! Everything is now 10x more expensive.'
+        };
+      }
+
+      if (lower === 'clicker') {
+        sounds.playLevelUp();
+        setState((prev) => ({
+          ...prev,
+          codeClickerUnlocked: true,
+          codeClickerEnabled: true
+        }));
+        return {
+          ok: true,
+          type: 'clicker',
+          message: 'Auto-Clicker unlocked! (+5 Auto-Clicks/sec active)'
+        };
+      }
+
+      if (lower === 'bobdabuilder') {
+        if (!stateRef.current.adminUnlocked) {
+          createSaveState('Pre-Admin Backup', true);
+        }
+        sounds.playLevelUp();
+        setState((prev) => ({
+          ...prev,
+          adminUnlocked: true,
+          adminFreeMode: true
+        }));
+        return {
+          ok: true,
+          type: 'admin',
+          message: 'Admin Panel unlocked! Pre-Admin Save State backed up automatically.'
+        };
+      }
+
+      return { ok: false, message: 'Invalid code.' };
+    },
+    [createSaveState]
+  );
+
+  const unlockAdminWithCode = useCallback(
+    (code: string): boolean => {
+      if (code.trim().toLowerCase() === 'bobdabuilder') {
+        if (!stateRef.current.adminUnlocked) {
+          createSaveState('Pre-Admin Backup', true);
+        }
+        sounds.playLevelUp();
+        setState((prev) => ({
+          ...prev,
+          adminUnlocked: true,
+          adminFreeMode: true
+        }));
+        return true;
+      }
+      return false;
+    },
+    [createSaveState]
+  );
 
   const toggleAdminFreeMode = useCallback(() => {
     setState((prev) => ({ ...prev, adminFreeMode: !prev.adminFreeMode }));
@@ -1523,18 +1779,18 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     sounds.playLevelUp();
     setState((prev) => ({
       ...prev,
-      coins: clampGoogol(prev.coins + 1e35),
-      lifetimeCoins: clampGoogol(Math.max(prev.lifetimeCoins, 1e35)),
-      rebirthPoints: clampGoogol(prev.rebirthPoints + 1e15),
-      lifetimeRebirthPoints: clampGoogol(Math.max(prev.lifetimeRebirthPoints, 1e15)),
-      prestigePoints: clampGoogol(prev.prestigePoints + 1e15),
-      lifetimePrestigePoints: clampGoogol(Math.max(prev.lifetimePrestigePoints, 1e15)),
-      treePoints: clampGoogol(prev.treePoints + 1e15),
-      lifetimeTreePoints: clampGoogol(Math.max(prev.lifetimeTreePoints, 1e15)),
-      singularityEssence: clampGoogol(prev.singularityEssence + 1e9),
-      lifetimeSingularityEssence: clampGoogol(Math.max(prev.lifetimeSingularityEssence, 1e9)),
-      timeTokens: clampGoogol(prev.timeTokens + 1000),
-      lifetimeTimeTokens: clampGoogol(Math.max(prev.lifetimeTimeTokens, 1000))
+      coins: safeNum(prev.coins + 1e35),
+      lifetimeCoins: safeNum(Math.max(prev.lifetimeCoins, 1e35)),
+      rebirthPoints: safeNum(prev.rebirthPoints + 1e15),
+      lifetimeRebirthPoints: safeNum(Math.max(prev.lifetimeRebirthPoints, 1e15)),
+      prestigePoints: safeNum(prev.prestigePoints + 1e15),
+      lifetimePrestigePoints: safeNum(Math.max(prev.lifetimePrestigePoints, 1e15)),
+      treePoints: safeNum(prev.treePoints + 1e15),
+      lifetimeTreePoints: safeNum(Math.max(prev.lifetimeTreePoints, 1e15)),
+      singularityEssence: safeNum(prev.singularityEssence + 1e9),
+      lifetimeSingularityEssence: safeNum(Math.max(prev.lifetimeSingularityEssence, 1e9)),
+      timeTokens: safeNum(prev.timeTokens + 1000),
+      lifetimeTimeTokens: safeNum(Math.max(prev.lifetimeTimeTokens, 1000))
     }));
   }, []);
 
@@ -1550,10 +1806,18 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
   return {
     state,
     stats,
+    saveStates,
+    firstRebirthPopupOpen,
+    dismissFirstRebirthPopup: () => setFirstRebirthPopupOpen(false),
+    createSaveState,
+    loadSaveState,
+    deleteSaveState,
+    redeemCode,
     handleManualClick,
     setSectionMultiBuy,
     toggleNotation,
     toggleSound,
+    toggleCodeClicker,
     toggleAutomation,
     toggleBuildingAutoBuy,
     setAllBuildingsAutoBuy,

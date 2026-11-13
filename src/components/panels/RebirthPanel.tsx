@@ -11,6 +11,8 @@ interface RebirthPanelProps {
   prestigePoints: number;
   ppToRpMultiplier: number;
   ppToRpPhase: 'exponential' | 'diminishing' | 'capped';
+  tpToRpMultiplier: number;
+  essenceToRpMultiplier: number;
   rpPerSecond: number;
   rpFormulaExponent: number;
   rpFormulaFactor: number;
@@ -28,6 +30,7 @@ interface RebirthPanelProps {
   rebirthPerks: TieredPerk[];
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   hasAutoRebirth: boolean;
   adminFreeMode: boolean;
@@ -45,6 +48,8 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
   prestigePoints,
   ppToRpMultiplier,
   ppToRpPhase,
+  tpToRpMultiplier,
+  essenceToRpMultiplier,
   rpPerSecond,
   rpFormulaExponent,
   rpFormulaFactor,
@@ -57,6 +62,7 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
   rebirthPerks,
   multiBuy,
   globalScaleReduction,
+  hardCostMult,
   notation,
   hasAutoRebirth,
   adminFreeMode,
@@ -96,11 +102,21 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
               )}
             </p>
             <p className="mt-0.5 text-xs text-cyan-300/90">
-              Prestige Points ({formatNum(prestigePoints, notation)} PP) → RP Gain:{' '}
+              Prestige ({formatNum(prestigePoints, notation)} PP) → RP:{' '}
               <strong className="font-mono tabular-nums">
                 ×{formatNum(ppToRpMultiplier, notation)}
               </strong>{' '}
-              ({ppToRpPhase} · Cap {formatNum(boostCapCeiling, notation)} PP)
+              ({ppToRpPhase} · Cap {formatNum(boostCapCeiling, notation)})
+              {tpToRpMultiplier > 1 && (
+                <span className="ml-1.5 text-emerald-300">
+                  · TP → RP: ×{formatNum(tpToRpMultiplier, notation)}
+                </span>
+              )}
+              {essenceToRpMultiplier > 1 && (
+                <span className="ml-1.5 text-rose-300">
+                  · Essence → RP: ×{formatNum(essenceToRpMultiplier, notation)}
+                </span>
+              )}
             </p>
           </div>
 
@@ -151,7 +167,7 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <div>
           <h3 className="text-sm font-bold text-white">
-            Rebirth Shop (Max Tier 10)
+            Rebirth Shop (Max Tier 30)
             {maxedCount > 0 && (
               <span className="ml-2 font-mono text-xs text-emerald-300">
                 {maxedCount}/{rebirthPerks.length} Maxed
@@ -159,7 +175,7 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
             )}
           </h3>
           <p className="text-xs text-slate-400">
-            Upgrades evolve up to Tier 10 and disappear once maxed.
+            Upgrades evolve up to Tier 30 and disappear once maxed.
           </p>
         </div>
 
@@ -180,7 +196,7 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
 
       {activePerks.length === 0 ? (
         <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-6 text-center text-sm font-bold text-emerald-300">
-          All Rebirth Shop upgrades are maxed at Tier 10!
+          All Rebirth Shop upgrades are maxed at Tier 30!
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
@@ -190,7 +206,8 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
               rebirthPoints,
               multiBuy,
               globalScaleReduction,
-              adminFreeMode
+              adminFreeMode,
+              hardCostMult
             );
 
             return (

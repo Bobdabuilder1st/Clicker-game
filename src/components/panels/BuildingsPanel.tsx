@@ -10,6 +10,7 @@ interface BuildingsPanelProps {
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
   buildingDiscountMult: number;
+  hardCostMult: number;
   buildingCpsMap: Record<string, number>;
   notation: NotationType;
   hasAutoBuildings: boolean;
@@ -30,6 +31,7 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
   multiBuy,
   globalScaleReduction,
   buildingDiscountMult,
+  hardCostMult,
   buildingCpsMap,
   notation,
   hasAutoBuildings,
@@ -111,7 +113,15 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
           const effScale = getEffectiveScale(b.scaleFactor, globalScaleReduction);
           const buyInfo = adminFreeMode
             ? { count: multiBuy === -1 ? 25 : multiBuy, totalCost: 0, canAfford: true }
-            : calculateMultiBuy(coins, b.baseCost, effScale, b.count, multiBuy, 250, buildingDiscountMult);
+            : calculateMultiBuy(
+                coins,
+                b.baseCost,
+                effScale,
+                b.count,
+                multiBuy,
+                250,
+                buildingDiscountMult * hardCostMult
+              );
           const unitCps = buildingCpsMap[b.id] ?? b.baseCps;
           const totalCps = unitCps * b.count;
           const bAutoEnabled = automation.buildingAutoBuyEnabled[b.id] !== false;

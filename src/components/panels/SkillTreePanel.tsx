@@ -25,6 +25,7 @@ interface SkillTreePanelProps {
   skillNodes: SkillNode[];
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   adminUnlocked: boolean;
   adminFreeMode: boolean;
@@ -50,6 +51,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
   skillNodes,
   multiBuy,
   globalScaleReduction,
+  hardCostMult,
   notation,
   adminUnlocked,
   adminFreeMode,
@@ -75,7 +77,8 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
       treePoints,
       multiBuy,
       globalScaleReduction,
-      adminFreeMode
+      adminFreeMode,
+      hardCostMult
     );
 
     return (
@@ -129,7 +132,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
         >
           <span>
             {maxed
-              ? 'Maxed (T10)'
+              ? 'Maxed (T30)'
               : !unlocked
                 ? 'Locked'
                 : `Train +${preview.count}${preview.willEvolve ? ' (Evolve!)' : ''}`}

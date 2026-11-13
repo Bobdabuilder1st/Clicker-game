@@ -21,6 +21,7 @@ export const SINGULARITY_TP_SCALE = 10.0;
 export const TIME_RESET_ESSENCE_COST = 1_000_000; // 1 Million Singularity Essence
 export const TIME_FLIP_BASE_COST = 10; // 10 Time Tokens
 export const TIME_FLIP_COST_SCALE = 10.0; // Increases 10x per purchase
+export const TIME_FLIP_MAX_LEVEL = 6; // 50% base + 6 * 5% = 80% max
 
 // Base Boosting Cap (100 Trillion) — multiplied by 10x every Time Reset!
 export const BASE_BOOST_CAP = 100_000_000_000_000; // 100 Trillion (1e14)
@@ -28,6 +29,13 @@ export const BASE_BOOST_CAP = 100_000_000_000_000; // 100 Trillion (1e14)
 // Coin Core Level-Up (1.1x cost scale, NO level cap!)
 export const CLICKER_BASE_COST = 60;
 export const CLICKER_COST_SCALE = 1.1;
+
+// Singularity Core Level Cap
+export const SINGULARITY_CORE_MAX_LEVEL = 100;
+
+// Upgrade / Perk Max Tiers
+export const UPGRADE_MAX_TIER = 30;
+export const LAYER_PERK_MAX_TIER = 30;
 
 // Essence Reactor (Appears after every Singularity upgrade has been bought)
 export const ESSENCE_REACTOR_BASE_COST = 5;
@@ -149,10 +157,10 @@ export const INITIAL_UPGRADE_TRACKS: UpgradeTrackState[] = [
   {
     id: 'trk_click',
     name: 'Kinetic Click Mastery',
-    description: 'Multiplies manual click power by 2.5x per tier (soft cap T15, hard cap T35)',
+    description: 'Multiplies manual click power by 2.5x per tier (soft cap T15, max T30)',
     category: 'click',
     tier: 1,
-    maxTier: 60,
+    maxTier: UPGRADE_MAX_TIER,
     baseCost: 150,
     costScale: 14,
     effectMultiplier: 2.5,
@@ -161,10 +169,10 @@ export const INITIAL_UPGRADE_TRACKS: UpgradeTrackState[] = [
   {
     id: 'trk_global',
     name: 'Global Overclock',
-    description: 'Multiplies ALL building production by 2x per tier (soft cap T15, hard cap T35)',
+    description: 'Multiplies ALL building production by 2x per tier (soft cap T15, max T30)',
     category: 'global',
     tier: 1,
-    maxTier: 60,
+    maxTier: UPGRADE_MAX_TIER,
     baseCost: 12000,
     costScale: 22,
     effectMultiplier: 2,
@@ -173,10 +181,10 @@ export const INITIAL_UPGRADE_TRACKS: UpgradeTrackState[] = [
   {
     id: 'trk_synergy',
     name: 'Synergy Matrix',
-    description: 'Adds +5% global CPS for every 10 buildings owned per tier (soft/hard capped)',
+    description: 'Adds +5% global CPS for every 10 buildings owned per tier (soft cap T15, max T30)',
     category: 'synergy',
     tier: 1,
-    maxTier: 60,
+    maxTier: UPGRADE_MAX_TIER,
     baseCost: 250000,
     costScale: 35,
     effectMultiplier: 1,
@@ -185,11 +193,11 @@ export const INITIAL_UPGRADE_TRACKS: UpgradeTrackState[] = [
   ...INITIAL_BUILDINGS.map((b, idx) => ({
     id: `trk_${b.id}`,
     name: `${b.name} Overdrive`,
-    description: `Multiplies ${b.name} output by 3x per tier (soft cap T15, hard cap T35)`,
+    description: `Multiplies ${b.name} output by 3x per tier (soft cap T15, max T30)`,
     category: 'building' as const,
     targetBuildingId: b.id,
     tier: 1,
-    maxTier: 60,
+    maxTier: UPGRADE_MAX_TIER,
     baseCost: Math.floor(b.baseCost * 18),
     costScale: 24 + idx * 1.5,
     effectMultiplier: 3,
@@ -197,14 +205,14 @@ export const INITIAL_UPGRADE_TRACKS: UpgradeTrackState[] = [
   }))
 ];
 
-// Harder Rebirth Shop Perks (Stop at Tier 10!)
+// Harder Rebirth Shop Perks (Max Tier 30)
 export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
   {
     id: 'rp_treasury',
     name: 'Starting Treasury',
     description: 'Start every Rebirth run with instant bonus coins',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -220,7 +228,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Super Tapper',
     description: 'Permanently boosts manual click power',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -236,7 +244,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Overclocked Mines',
     description: 'Increases all building passive output',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -252,7 +260,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Discount Architect',
     description: 'Reduces building purchase prices (capped at 75% off)',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -268,7 +276,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Cosmic Auto-Pulse',
     description: 'Automatically clicks the coin every second',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -284,7 +292,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Bulk Mastery',
     description: 'Each building count adds compounding self-bonus',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -300,7 +308,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'Rebirth Retainer',
     description: 'Retain a share of your Coins across Rebirths (hard cap 80%)',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -316,7 +324,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
     name: 'RP Formula Amplifier',
     description: 'Amplifies the Rebirth Points → Coins curve before the 100T cap',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -336,7 +344,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Rebirth Conduit',
     description: 'Generates +1 RP/s at Lv.1; scales by 10x per tier at high Prestige!',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -352,7 +360,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Crown of Midas',
     description: 'Manual clicks gain a percentage of passive CPS (10x surge in upper tiers)',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -368,7 +376,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Chrono Hourglass',
     description: 'Accelerates internal game clock speed (10x surge in upper tiers)',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -384,7 +392,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Philosophers Crucible',
     description: 'Multiplies Rebirth Points gained when Rebirthing (10x surge in upper tiers)',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -400,7 +408,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Ancestral Memory',
     description: 'Retains Rebirth Levels when triggering Prestige',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -416,7 +424,7 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
     name: 'Critical Overdrive',
     description: 'Grants critical click chance (hard cap 75%) & crit scaling',
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -438,7 +446,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'root',
     requires: [],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -456,7 +464,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'wealth',
     requires: ['sk_root'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -474,7 +482,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'wealth',
     requires: ['sk_scale'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -492,7 +500,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'rebirth',
     requires: ['sk_root'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -510,7 +518,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'rebirth',
     requires: ['sk_fountain'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -528,7 +536,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'clicker',
     requires: ['sk_root'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -546,7 +554,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'clicker',
     requires: ['sk_clicker'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -564,7 +572,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     branch: 'capstone',
     requires: ['sk_mints', 'sk_prestige_gen', 'sk_supercrit'],
     tier: 1,
-    maxTier: 10,
+    maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
     totalLevels: 0,
     totalBonus: 0,
@@ -582,7 +590,7 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
   {
     id: 'su_tree_gen',
     name: 'Yggdrasil Conduit',
-    description: 'Generates +1 Tree Point per second automatically',
+    description: 'Generates Tree Points/sec — output grows exponentially (+50% compound per level & doubles per tier)!',
     tier: 1,
     maxTier: 10,
     level: 0,
@@ -592,7 +600,7 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
     baseCost: 1,
     costScale: 10,
     bonusPerLevel: 1,
-    bonusUnit: 'TP/sec',
+    bonusUnit: 'TP/sec base',
     icon: '🌱'
   },
   {

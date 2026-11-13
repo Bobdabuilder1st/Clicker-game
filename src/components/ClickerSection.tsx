@@ -13,6 +13,9 @@ interface ClickerSectionProps {
   rpFormulaFactor: number;
   rpCoinMultiplier: number;
   rpCurvePhase: 'exponential' | 'diminishing' | 'capped';
+  ppCoinMultiplier: number;
+  tpCoinMultiplier: number;
+  essenceCoinMultiplier: number;
   boostCapCeiling: number;
   critChance: number;
   critMultiplier: number;
@@ -31,6 +34,9 @@ interface ClickerSectionProps {
   };
   notation: NotationType;
   adminFreeMode: boolean;
+  codeClickerUnlocked: boolean;
+  codeClickerEnabled: boolean;
+  onToggleCodeClicker: () => void;
   onManualClick: () => { amount: number; isCrit: boolean };
   onLevelUpClicker: () => void;
   onCoinCoreMultiChange: (val: MultiBuyAmount) => void;
@@ -46,6 +52,9 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
   rpFormulaFactor,
   rpCoinMultiplier,
   rpCurvePhase,
+  ppCoinMultiplier,
+  tpCoinMultiplier,
+  essenceCoinMultiplier,
   boostCapCeiling,
   critChance,
   critMultiplier,
@@ -59,6 +68,9 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
   clickerBuyInfo,
   notation,
   adminFreeMode,
+  codeClickerUnlocked,
+  codeClickerEnabled,
+  onToggleCodeClicker,
   onManualClick,
   onLevelUpClicker,
   onCoinCoreMultiChange
@@ -225,8 +237,23 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
             </div>
           </div>
 
-          <div className="mt-2 text-[11px] text-slate-500">
-            Click orb or hold/tap <span className="font-mono text-slate-300">Spacebar</span>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-500">
+            <span>
+              Click orb or hold/tap <span className="font-mono text-slate-300">Spacebar</span>
+            </span>
+            {codeClickerUnlocked && (
+              <button
+                type="button"
+                onClick={onToggleCodeClicker}
+                className={`rounded-lg border px-2 py-0.5 text-[11px] font-bold cursor-pointer ${
+                  codeClickerEnabled
+                    ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-400'
+                }`}
+              >
+                Auto-Clicker (+5/s): {codeClickerEnabled ? 'ON' : 'OFF'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -307,7 +334,7 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         )}
       </div>
 
-      {/* Live RP -> Coins Curve Card (100T Cap * 10^timeResets) */}
+      {/* Live Cascading Currency -> Coins Boost Card (100T Cap * 10^timeResets) */}
       <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
@@ -320,6 +347,21 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         <div className="mt-2 rounded-lg bg-slate-950/80 px-3 py-2 font-mono text-xs text-slate-300 tabular-nums">
           Mult = 1 + (RP<sup>{rpFormulaExponent}</sup> × {rpFormulaFactor})
         </div>
+        {(ppCoinMultiplier > 1 || tpCoinMultiplier > 1 || essenceCoinMultiplier > 1) && (
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums">
+            {ppCoinMultiplier > 1 && (
+              <span className="text-cyan-300">PP→Coins: ×{formatNum(ppCoinMultiplier, notation)}</span>
+            )}
+            {tpCoinMultiplier > 1 && (
+              <span className="text-emerald-300">TP→Coins: ×{formatNum(tpCoinMultiplier, notation)}</span>
+            )}
+            {essenceCoinMultiplier > 1 && (
+              <span className="text-rose-300">
+                Essence→Coins: ×{formatNum(essenceCoinMultiplier, notation)}
+              </span>
+            )}
+          </div>
+        )}
         <div className="mt-1.5 flex items-center justify-between text-[11px]">
           <span className="text-slate-400">
             Cap:{' '}

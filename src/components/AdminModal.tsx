@@ -54,7 +54,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         {!adminUnlocked ? (
           <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-3">
             <p className="text-xs text-slate-400">
-              Enter the architect code to open all sections and inspect everything with zero cost.
+              Enter the architect code to open all sections with zero cost. A Save State backup of
+              your current game is created automatically before Admin mode activates.
             </p>
             <input
               type="text"
@@ -87,8 +88,8 @@ export const AdminModal: React.FC<AdminModalProps> = ({
         ) : (
           <div className="mt-4 flex flex-col gap-3">
             <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/25 p-3 text-xs text-emerald-200">
-              Architect Mode Active — All tabs, buildings, Skill Tree nodes, and Essence Reactor are
-              open to inspect.
+              Architect Mode Active — A Pre-Admin Save State backup was saved in{' '}
+              <strong>Saves</strong> so you can return to your pre-admin run anytime.
             </div>
 
             <button

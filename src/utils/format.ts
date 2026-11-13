@@ -1,6 +1,7 @@
 import { MultiBuyAmount, NotationType } from '../types/game';
 
 export const GOOGOL = 1e100;
+export const FLOAT_SAFE_MAX = 1e305;
 
 const SUFFIXES = [
   '',
@@ -40,35 +41,34 @@ const SUFFIXES = [
 ];
 
 /**
- * Prevents Infinity or NaN anywhere in the math engine, capping strictly at a Googol (1e100).
+ * Prevents NaN or IEEE-754 Infinity crashes without enforcing an artificial 1e100 ceiling.
  */
-export function clampGoogol(n: number): number {
+export function safeNum(n: number): number {
   if (Number.isNaN(n)) return 0;
-  if (!Number.isFinite(n)) return n > 0 ? GOOGOL : 0;
-  if (n >= GOOGOL) return GOOGOL;
-  if (n <= -GOOGOL) return -GOOGOL;
+  if (!Number.isFinite(n)) return n > 0 ? FLOAT_SAFE_MAX : 0;
+  if (n >= FLOAT_SAFE_MAX) return FLOAT_SAFE_MAX;
+  if (n <= -FLOAT_SAFE_MAX) return -FLOAT_SAFE_MAX;
   return n;
 }
+
+export const clampGoogol = safeNum;
 
 export function safePow(base: number, exp: number): number {
   if (base <= 0) return exp === 0 ? 1 : 0;
   if (exp === 0) return 1;
-  // Prevent log10 overflow past Googol
   const logVal = exp * Math.log10(base);
   if (Number.isNaN(logVal)) return 1;
-  if (logVal >= 100) return GOOGOL;
-  if (logVal <= -100) return 0;
-  return clampGoogol(Math.pow(base, exp));
+  if (logVal >= 305) return FLOAT_SAFE_MAX;
+  if (logVal <= -305) return 0;
+  return safeNum(Math.pow(base, exp));
 }
 
 export function safeMul(a: number, b: number): number {
-  const res = a * b;
-  return clampGoogol(res);
+  return safeNum(a * b);
 }
 
 /**
  * Enforces a smooth soft cap followed by an unbreakable hard cap.
- * Exploits or stacked multipliers cannot exceed `hardCap`.
  */
 export function applySoftAndHardCap(
   rawValue: number,
@@ -76,13 +76,12 @@ export function applySoftAndHardCap(
   hardCap: number,
   softPower = 0.5
 ): number {
-  const clean = clampGoogol(Math.max(0, rawValue));
+  const clean = safeNum(Math.max(0, rawValue));
   if (clean <= softCap) return clean;
   if (hardCap <= softCap) return Math.min(clean, hardCap);
 
   const headroom = hardCap - softCap;
   const excessRatio = (clean - softCap) / headroom;
-  // Asymptotic saturation strictly bounded inside [softCap, hardCap)
   const diminished = 1 - 1 / (1 + Math.pow(excessRatio, softPower));
   return Math.min(hardCap, softCap + headroom * diminished);
 }
@@ -101,7 +100,7 @@ export function computeCappedBoostCurve(
   maxMultSoft = 1e8,
   maxMultHard = 1e14
 ): { multiplier: number; phase: 'exponential' | 'diminishing' | 'capped'; capCeiling: number } {
-  const safeCap = clampGoogol(Math.max(100_000, capCeiling));
+  const safeCap = safeNum(Math.max(100_000, capCeiling));
   const surgePeak = Math.min(safeCap * 0.001, Math.max(100_000, Math.pow(safeCap, 0.38)));
 
   if (amount <= 0) {
@@ -132,13 +131,10 @@ export function computeCappedBoostCurve(
 }
 
 export function formatNum(n: number, notation: NotationType = 'standard', decimals = 2): string {
-  const safe = clampGoogol(n);
+  const safe = safeNum(n);
   if (safe === 0) return '0';
 
   const abs = Math.abs(safe);
-  if (abs >= GOOGOL) {
-    return notation === 'scientific' ? '1.00e+100' : '1.00 Googol';
-  }
 
   if (abs < 1000) {
     if (Math.abs(Math.round(safe) - safe) < 0.001) return Math.round(safe).toString();
@@ -151,29 +147,28 @@ export function formatNum(n: number, notation: NotationType = 'standard', decima
     return `${mantissa.toFixed(decimals)}e+${exp}`;
   }
 
+  if (abs >= GOOGOL && abs < 1e103) {
+    const scaled = safe / GOOGOL;
+    return `${scaled.toFixed(decimals)} Googol`;
+  }
+
   const tier = Math.floor(Math.log10(abs) / 3);
   if (tier < SUFFIXES.length) {
     const scaled = safe / Math.pow(10, tier * 3);
     return `${scaled.toFixed(decimals)}${SUFFIXES[tier]}`;
   }
 
-  // Between 1e102 wouldn't happen since GOOGOL is 1e100, fallback cleanly
+  // Unlimited numbers beyond 1e103 seamlessly format in scientific notation
   const exp = Math.floor(Math.log10(abs));
   const mantissa = safe / Math.pow(10, exp);
   return `${mantissa.toFixed(decimals)}e+${exp}`;
 }
 
-/**
- * Computes effective scaling factor after global scaling reduction.
- */
 export function getEffectiveScale(baseScale: number, scaleReduction: number): number {
   const clampedReduction = Math.min(0.6, Math.max(0, scaleReduction));
   return Math.max(1.01, 1 + (baseScale - 1) * (1 - clampedReduction));
 }
 
-/**
- * Calculates single-item cost at a given level/count, bounded by GOOGOL.
- */
 export function getLevelCost(
   baseCost: number,
   effectiveScale: number,
@@ -182,13 +177,9 @@ export function getLevelCost(
 ): number {
   const scaled = safeMul(baseCost, safePow(effectiveScale, currentLevel));
   const raw = safeMul(scaled, discountMult);
-  return clampGoogol(Math.max(1, Math.floor(raw)));
+  return safeNum(Math.max(1, Math.floor(raw)));
 }
 
-/**
- * Exponentially harder Rebirth cost curve:
- * Each Rebirth increases the multiplier gap exponentially (super-exponential scaling).
- */
 export function getRebirthLevelCost(
   baseCost: number,
   effectiveScale: number,
@@ -198,7 +189,7 @@ export function getRebirthLevelCost(
   const linearPart = safePow(effectiveScale, rebirthLevel);
   const expAcceleration = safePow(1.42, quadExp);
   const raw = safeMul(baseCost, safeMul(linearPart, expAcceleration));
-  return clampGoogol(Math.max(1, Math.floor(raw)));
+  return safeNum(Math.max(1, Math.floor(raw)));
 }
 
 export function calculateMultiBuyRebirth(
@@ -207,9 +198,12 @@ export function calculateMultiBuyRebirth(
   effectiveScale: number,
   currentRebirthLevel: number,
   multiBuy: MultiBuyAmount,
-  maxAllowed = 50
+  maxAllowed = 50,
+  costMult = 1
 ): { count: number; totalCost: number; canAfford: boolean; nextSingleCost: number } {
-  const nextSingleCost = getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel);
+  const nextSingleCost = safeNum(
+    Math.floor(getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel) * costMult)
+  );
   if (maxAllowed <= 0) {
     return { count: 0, totalCost: nextSingleCost, canAfford: false, nextSingleCost };
   }
@@ -217,7 +211,7 @@ export function calculateMultiBuyRebirth(
     return {
       count: 1,
       totalCost: nextSingleCost,
-      canAfford: coins >= nextSingleCost && nextSingleCost < GOOGOL,
+      canAfford: coins >= nextSingleCost && nextSingleCost < FLOAT_SAFE_MAX,
       nextSingleCost
     };
   }
@@ -227,17 +221,19 @@ export function calculateMultiBuyRebirth(
   const target = multiBuy === -1 ? maxAllowed : Math.min(multiBuy, maxAllowed);
 
   for (let i = 0; i < target; i++) {
-    const stepCost = getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel + i);
-    if (stepCost >= GOOGOL) break;
+    const stepCost = safeNum(
+      Math.floor(getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel + i) * costMult)
+    );
+    if (stepCost >= FLOAT_SAFE_MAX) break;
     if (multiBuy === -1) {
       if (coins >= totalCost + stepCost) {
-        totalCost = clampGoogol(totalCost + stepCost);
+        totalCost = safeNum(totalCost + stepCost);
         count++;
       } else {
         break;
       }
     } else {
-      totalCost = clampGoogol(totalCost + stepCost);
+      totalCost = safeNum(totalCost + stepCost);
       count++;
     }
   }
@@ -249,15 +245,11 @@ export function calculateMultiBuyRebirth(
   return {
     count,
     totalCost,
-    canAfford: count > 0 && coins >= totalCost && totalCost < GOOGOL,
+    canAfford: count > 0 && coins >= totalCost && totalCost < FLOAT_SAFE_MAX,
     nextSingleCost
   };
 }
 
-/**
- * Calculates multi-buy count and total cost for geometric cost progression.
- * Safely stops before GOOGOL so Infinity never appears.
- */
 export function calculateMultiBuy(
   currency: number,
   baseCost: number,
@@ -277,7 +269,7 @@ export function calculateMultiBuy(
     return {
       count: 1,
       totalCost: nextSingleCost,
-      canAfford: currency >= nextSingleCost && nextSingleCost < GOOGOL,
+      canAfford: currency >= nextSingleCost && nextSingleCost < FLOAT_SAFE_MAX,
       nextSingleCost
     };
   }
@@ -288,17 +280,17 @@ export function calculateMultiBuy(
 
   for (let i = 0; i < target; i++) {
     const stepCost = getLevelCost(baseCost, effectiveScale, currentLevel + i, discountMult);
-    if (stepCost >= GOOGOL) break;
+    if (stepCost >= FLOAT_SAFE_MAX) break;
 
     if (multiBuy === -1) {
       if (currency >= totalCost + stepCost) {
-        totalCost = clampGoogol(totalCost + stepCost);
+        totalCost = safeNum(totalCost + stepCost);
         count++;
       } else {
         break;
       }
     } else {
-      totalCost = clampGoogol(totalCost + stepCost);
+      totalCost = safeNum(totalCost + stepCost);
       count++;
     }
   }
@@ -310,7 +302,7 @@ export function calculateMultiBuy(
   return {
     count,
     totalCost,
-    canAfford: count > 0 && currency >= totalCost && totalCost < GOOGOL,
+    canAfford: count > 0 && currency >= totalCost && totalCost < FLOAT_SAFE_MAX,
     nextSingleCost
   };
 }

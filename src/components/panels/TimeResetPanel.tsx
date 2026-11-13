@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { MultiBuyAmount, NotationType } from '../../types/game';
 import { formatNum } from '../../utils/format';
-import { TIME_RESET_ESSENCE_COST } from '../../utils/gameData';
+import { TIME_FLIP_MAX_LEVEL } from '../../utils/gameData';
 import { MultiBuyBar } from '../MultiBuyBar';
 
 interface TimeResetPanelProps {
@@ -11,6 +11,7 @@ interface TimeResetPanelProps {
   lifetimeTimeTokens: number;
   timeTokenMult: number;
   boostCapCeiling: number;
+  timeResetRequiredEssence: number;
   canTimeReset: boolean;
   projectedTimeTokens: number;
   timeFlipChanceLevel: number;
@@ -36,6 +37,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
   lifetimeTimeTokens,
   timeTokenMult,
   boostCapCeiling,
+  timeResetRequiredEssence,
   canTimeReset,
   projectedTimeTokens,
   timeFlipChanceLevel,
@@ -54,7 +56,8 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
 
   const essenceProgress = adminFreeMode
     ? 100
-    : Math.min(100, (singularityEssence / TIME_RESET_ESSENCE_COST) * 100);
+    : Math.min(100, (singularityEssence / Math.max(1, timeResetRequiredEssence)) * 100);
+  const coinOddsMaxed = timeFlipChanceLevel >= TIME_FLIP_MAX_LEVEL;
 
   const handleReset = (gambleFlip: boolean) => {
     const result = onTimeReset(gambleFlip);
@@ -75,7 +78,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
             </h2>
             <p className="mt-1 max-w-xl text-xs text-slate-300">
               Each Time Token gives a{' '}
-              <strong className="text-amber-200">+10% boost</strong> to all upgrades before Time Reset
+              <strong className="text-amber-200">+1% boost</strong> to everything before Time Reset
               (currently{' '}
               <strong className="font-mono text-amber-300 tabular-nums">
                 ×{formatNum(timeTokenMult, notation)}
@@ -95,13 +98,15 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
           <MultiBuyBar value={multiBuy} onChange={onMultiBuyChange} compact />
         </div>
 
-        {/* 1M Essence Progress */}
+        {/* Essence Progress */}
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Time Reset Requirement (1,000,000 Singularity Essence)</span>
+            <span className="text-slate-400">
+              Time Reset Requirement ({formatNum(timeResetRequiredEssence || 1_000_000, notation)} Singularity Essence)
+            </span>
             <span className="font-mono font-semibold text-amber-200 tabular-nums">
               {formatNum(singularityEssence, notation)} /{' '}
-              {adminFreeMode ? 'FREE' : `${formatNum(TIME_RESET_ESSENCE_COST, notation)} 🕳️`}
+              {adminFreeMode ? 'FREE' : `${formatNum(timeResetRequiredEssence, notation)} 🕳️`}
             </span>
           </div>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-900">
@@ -186,13 +191,13 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">Loaded Temporal Coin</span>
+                <span className="text-sm font-bold text-white">Coin Odds</span>
                 <span className="font-mono text-xs text-amber-300 tabular-nums">
-                  Lv.{timeFlipChanceLevel}/5
+                  Lv.{timeFlipChanceLevel}/{TIME_FLIP_MAX_LEVEL}
                 </span>
               </div>
               <p className="mt-0.5 text-xs text-slate-400">
-                Increases Time Reset Coin Flip win odds by +10% per level (50% → 100%).
+                Increases Time Reset Coin Flip win odds by +5% per level (50% → 80% max).
               </p>
               <div className="mt-1 text-[11px] font-mono text-amber-200 tabular-nums">
                 Current Odds: {Math.round(timeFlipWinChance * 100)}% · Cost Scale 10.00x
@@ -202,18 +207,18 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
 
           <button
             type="button"
-            disabled={timeFlipChanceLevel >= 5 || !timeFlipBuyInfo.canAfford}
+            disabled={coinOddsMaxed || !timeFlipBuyInfo.canAfford}
             onClick={onBuyTimeFlipUpgrade}
             className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              timeFlipChanceLevel >= 5
+              coinOddsMaxed
                 ? 'cursor-default bg-emerald-500/20 text-emerald-300'
                 : timeFlipBuyInfo.canAfford
                   ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95'
                   : 'cursor-not-allowed bg-slate-800 text-slate-500'
             }`}
           >
-            {timeFlipChanceLevel >= 5 ? (
-              'MAXED (100% Odds)'
+            {coinOddsMaxed ? (
+              'MAXED (80% Odds)'
             ) : (
               <>
                 <div>Upgrade +{timeFlipBuyInfo.count}</div>

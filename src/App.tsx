@@ -6,6 +6,9 @@ import { ClickerSection } from './components/ClickerSection';
 import { BuildingsPanel } from './components/panels/BuildingsPanel';
 import { UpgradesPanel } from './components/panels/UpgradesPanel';
 import { AdminModal } from './components/AdminModal';
+import { SaveStatesModal } from './components/SaveStatesModal';
+import { AchievementsModal, FirstRebirthPopup } from './components/AchievementsModal';
+import { CodesModal } from './components/CodesModal';
 
 const RebirthPanel = lazy(() => import('./components/panels/RebirthPanel'));
 const PrestigePanel = lazy(() => import('./components/panels/PrestigePanel'));
@@ -19,14 +22,25 @@ export function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('buildings');
   const [confirmModal, setConfirmModal] = useState<ConfirmModalType>(null);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [savesOpen, setSavesOpen] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
+  const [codesOpen, setCodesOpen] = useState(false);
 
   const {
     state,
     stats,
+    saveStates,
+    firstRebirthPopupOpen,
+    dismissFirstRebirthPopup,
+    createSaveState,
+    loadSaveState,
+    deleteSaveState,
+    redeemCode,
     handleManualClick,
     setSectionMultiBuy,
     toggleNotation,
     toggleSound,
+    toggleCodeClicker,
     toggleAutomation,
     toggleBuildingAutoBuy,
     setAllBuildingsAutoBuy,
@@ -54,6 +68,10 @@ export function App() {
   } = useGameEngine(activeTab);
 
   const totalCpsWithAuto = stats.coinsPerSecond + stats.autoClicksPerSecond * stats.coinsPerClick;
+  const completedAchievements =
+    (state.achievements.firstRebirth ? 1 : 0) +
+    (state.achievements.firstPrestige ? 1 : 0) +
+    (state.achievements.firstSkillTree ? 1 : 0);
 
   const tabs: { id: ActiveTab; label: string; ready?: boolean }[] = [
     { id: 'buildings', label: 'Buildings' },
@@ -86,6 +104,11 @@ export function App() {
                 <h1 className="text-base font-extrabold tracking-tight text-white">
                   Cascade Infinity
                 </h1>
+                {state.hardMode && (
+                  <span className="rounded-md border border-rose-500/60 bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-extrabold text-rose-300">
+                    HARD 10x
+                  </span>
+                )}
               </div>
               <div className="text-[11px] text-slate-400">
                 Rebirth Lv.{state.rebirthLevel} · Prestige T{state.prestigeLevel} · Singularity #
@@ -174,11 +197,35 @@ export function App() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setAchievementsOpen(true)}
+              className="rounded-xl border border-amber-500/40 bg-amber-950/30 px-2.5 py-1.5 text-xs font-bold text-amber-200 hover:bg-amber-900/40 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              🏆 {completedAchievements}/3
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSavesOpen(true)}
+              className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              💾 Saves ({saveStates.length})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setCodesOpen(true)}
+              className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
+            >
+              🎟️ Codes
+            </button>
+
             <button
               type="button"
               onClick={() => setAdminOpen(true)}
-              className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold cursor-pointer whitespace-nowrap shrink-0 ${
                 state.adminUnlocked
                   ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
                   : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
@@ -190,7 +237,7 @@ export function App() {
             <button
               type="button"
               onClick={toggleNotation}
-              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
+              className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
               title="Toggle number notation"
             >
               {state.notation === 'standard' ? 'Std' : 'Sci'}
@@ -199,7 +246,7 @@ export function App() {
             <button
               type="button"
               onClick={toggleSound}
-              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
+              className="rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
               title="Toggle sound effects"
             >
               {state.soundEnabled ? '🔊' : '🔇'}
@@ -208,7 +255,7 @@ export function App() {
             <button
               type="button"
               onClick={() => setConfirmModal('hardReset')}
-              className="rounded-xl border border-rose-900/60 bg-rose-950/30 px-3 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-900/40 cursor-pointer whitespace-nowrap shrink-0"
+              className="rounded-xl border border-rose-900/60 bg-rose-950/30 px-2.5 py-1.5 text-xs font-bold text-rose-300 hover:bg-rose-900/40 cursor-pointer whitespace-nowrap shrink-0"
             >
               Reset
             </button>
@@ -229,6 +276,9 @@ export function App() {
             rpFormulaFactor={stats.rpFormulaFactor}
             rpCoinMultiplier={stats.rpCurve.multiplier}
             rpCurvePhase={stats.rpCurve.phase}
+            ppCoinMultiplier={stats.ppToRpCurve.multiplier}
+            tpCoinMultiplier={stats.tpToPpCurve.multiplier}
+            essenceCoinMultiplier={stats.essenceToTpCurve.multiplier}
             boostCapCeiling={stats.boostCapCeiling}
             critChance={stats.critChance}
             critMultiplier={stats.critMultiplier}
@@ -242,6 +292,9 @@ export function App() {
             clickerBuyInfo={stats.clickerBuyInfo}
             notation={state.notation}
             adminFreeMode={state.adminFreeMode}
+            codeClickerUnlocked={state.codeClickerUnlocked}
+            codeClickerEnabled={state.codeClickerEnabled}
+            onToggleCodeClicker={toggleCodeClicker}
             onManualClick={handleManualClick}
             onLevelUpClicker={levelUpClicker}
             onCoinCoreMultiChange={(val) => setSectionMultiBuy('coinCore', val)}
@@ -290,6 +343,7 @@ export function App() {
               multiBuy={state.multiBuyBySection.buildings}
               globalScaleReduction={stats.globalScaleReduction}
               buildingDiscountMult={stats.buildingDiscountMult}
+              hardCostMult={stats.hardCostMult}
               buildingCpsMap={stats.buildingCpsMap}
               notation={state.notation}
               hasAutoBuildings={stats.hasAutoBuildings}
@@ -317,6 +371,7 @@ export function App() {
               completedUpgradeCount={state.completedUpgradeCount}
               multiBuy={state.multiBuyBySection.upgrades}
               globalScaleReduction={stats.globalScaleReduction}
+              hardCostMult={stats.hardCostMult}
               notation={state.notation}
               hasAutoUpgrades={stats.hasAutoUpgrades}
               adminUnlocked={state.adminUnlocked}
@@ -343,6 +398,8 @@ export function App() {
                 prestigePoints={state.prestigePoints}
                 ppToRpMultiplier={stats.ppToRpCurve.multiplier}
                 ppToRpPhase={stats.ppToRpCurve.phase}
+                tpToRpMultiplier={stats.tpToPpCurve.multiplier}
+                essenceToRpMultiplier={stats.essenceToTpCurve.multiplier}
                 rpPerSecond={stats.rpPerSecond}
                 rpFormulaExponent={stats.rpFormulaExponent}
                 rpFormulaFactor={stats.rpFormulaFactor}
@@ -355,6 +412,7 @@ export function App() {
                 rebirthPerks={state.rebirthPerks}
                 multiBuy={state.multiBuyBySection.rebirth}
                 globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 hasAutoRebirth={stats.hasAutoRebirth}
                 adminFreeMode={state.adminFreeMode}
@@ -375,6 +433,7 @@ export function App() {
                 treePoints={state.treePoints}
                 tpToPpMultiplier={stats.tpToPpCurve.multiplier}
                 tpToPpPhase={stats.tpToPpCurve.phase}
+                essenceToPpMultiplier={stats.essenceToTpCurve.multiplier}
                 boostCapCeiling={stats.boostCapCeiling}
                 rpPerSecond={stats.rpPerSecond}
                 ppPerSecond={stats.ppPerSecond}
@@ -384,6 +443,7 @@ export function App() {
                 prestigeUpgrades={state.prestigeUpgrades}
                 multiBuy={state.multiBuyBySection.prestige}
                 globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 adminFreeMode={state.adminFreeMode}
                 onMultiBuyChange={(val) => setSectionMultiBuy('prestige', val)}
@@ -409,6 +469,7 @@ export function App() {
                 skillNodes={state.skillNodes}
                 multiBuy={state.multiBuyBySection.skillTree}
                 globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 adminUnlocked={state.adminUnlocked}
                 adminFreeMode={state.adminFreeMode}
@@ -447,6 +508,7 @@ export function App() {
                 automation={state.automation}
                 multiBuy={state.multiBuyBySection.singularity}
                 globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 adminFreeMode={state.adminFreeMode}
                 onMultiBuyChange={(val) => setSectionMultiBuy('singularity', val)}
@@ -466,6 +528,7 @@ export function App() {
                 lifetimeTimeTokens={state.lifetimeTimeTokens}
                 timeTokenMult={stats.timeTokenMult}
                 boostCapCeiling={stats.boostCapCeiling}
+                timeResetRequiredEssence={stats.timeResetRequiredEssence}
                 canTimeReset={stats.canTimeReset}
                 projectedTimeTokens={stats.projectedTimeTokens}
                 timeFlipChanceLevel={state.timeFlipChanceLevel}
@@ -483,7 +546,38 @@ export function App() {
         </section>
       </main>
 
-      {/* Admin Modal ("bobdabuilder") */}
+      {/* Modals */}
+      <SaveStatesModal
+        isOpen={savesOpen}
+        saveStates={saveStates}
+        onClose={() => setSavesOpen(false)}
+        onCreateSave={(name) => createSaveState(name, false)}
+        onLoadSave={loadSaveState}
+        onDeleteSave={deleteSaveState}
+      />
+
+      <AchievementsModal
+        isOpen={achievementsOpen}
+        achievements={state.achievements}
+        codeClickerUnlocked={state.codeClickerUnlocked}
+        onClose={() => setAchievementsOpen(false)}
+      />
+
+      <FirstRebirthPopup
+        isOpen={firstRebirthPopupOpen}
+        onClose={dismissFirstRebirthPopup}
+        onRedeemClickerNow={() => redeemCode('clicker')}
+      />
+
+      <CodesModal
+        isOpen={codesOpen}
+        hardMode={state.hardMode}
+        codeClickerUnlocked={state.codeClickerUnlocked}
+        adminUnlocked={state.adminUnlocked}
+        onClose={() => setCodesOpen(false)}
+        onRedeemCode={redeemCode}
+      />
+
       <AdminModal
         isOpen={adminOpen}
         adminUnlocked={state.adminUnlocked}
@@ -512,13 +606,13 @@ export function App() {
               {confirmModal === 'rebirth' &&
                 `Resets Coins, Buildings, Upgrades, and Coin Core Level in exchange for +${formatNum(stats.projectedRebirthRpGain, state.notation)} Rebirth Points.`}
               {confirmModal === 'prestige' &&
-                `Costs 1M+ Rebirth Points and resets Coins, Buildings, Upgrades, Coin Core, and Rebirth in exchange for +${formatNum(stats.projectedPrestigePointsGain, state.notation)} Prestige Points.`}
+                `Costs ${formatNum(stats.prestigeBuyInfo.totalCost, state.notation)} Rebirth Points and resets Coins, Buildings, Upgrades, Coin Core, and Rebirth in exchange for +${formatNum(stats.projectedPrestigePointsGain, state.notation)} Prestige Points.`}
               {confirmModal === 'treeReset' &&
-                `Costs 1B+ Prestige Points and resets Prestige, Rebirth, and Coins in exchange for +${formatNum(stats.projectedTreePointsGain, state.notation)} Tree Points.`}
+                `Costs ${formatNum(stats.treeBuyInfo.totalCost, state.notation)} Prestige Points and resets Prestige, Rebirth, and Coins in exchange for +${formatNum(stats.projectedTreePointsGain, state.notation)} Tree Points.`}
               {confirmModal === 'singularity' &&
-                `Costs ${formatNum(stats.singularityCost, state.notation)} Tree Points (increases 10x after) and resets Coins, Rebirth, Prestige, and Skill Tree in exchange for +${stats.projectedEssenceGain} Singularity Essence!`}
+                `Costs ${formatNum(stats.singularityCost, state.notation)} Tree Points (increases 10x after) and resets Coins, Rebirth, Prestige, and Skill Tree in exchange for +${formatNum(stats.projectedEssenceGain, state.notation)} Singularity Essence!`}
               {confirmModal === 'hardReset' &&
-                'This permanently erases all progress across all layers. This cannot be undone.'}
+                'This permanently erases your active run across all layers (manual Save States remain safe). This cannot be undone.'}
             </p>
 
             <div className="mt-6 flex items-center justify-end gap-2.5">

@@ -125,6 +125,12 @@ export interface AutomationState {
   buildingAutoBuyEnabled: Record<string, boolean>;
 }
 
+export interface AchievementsState {
+  firstRebirth: boolean;
+  firstPrestige: boolean;
+  firstSkillTree: boolean;
+}
+
 export interface GameState {
   version: number;
   coins: number;
@@ -154,17 +160,17 @@ export interface GameState {
 
   // Singularity Layer (Costs 1B Tree Points, 10x per purchase, 1 at a time)
   singularityCount: number;
-  singularityCoreLevel: number;
+  singularityCoreLevel: number; // Max 100
   singularityEssence: number;
   lifetimeSingularityEssence: number;
   singularityUpgrades: SingularityUpgrade[];
-  essenceReactorLevel: number; // Tier 1 only, max 100, unlocks after all Singularity upgrades bought
+  essenceReactorLevel: number;
 
   // Time Reset Layer (Costs 1M Singularity Essence)
   timeResetCount: number;
   timeTokens: number;
   lifetimeTimeTokens: number;
-  timeFlipChanceLevel: number; // +10% flip chance per level, starts at 10 Time Tokens, 10x per level
+  timeFlipChanceLevel: number; // Coin Odds: +5% per level up to 80% (max 6)
 
   // Core Entities
   buildings: Building[];
@@ -178,7 +184,23 @@ export interface GameState {
   notation: NotationType;
   soundEnabled: boolean;
 
+  // Codes, Achievements & Hard Mode
+  hardMode: boolean; // Typing "HARD" makes everything 10x more expensive
+  codeClickerUnlocked: boolean; // Typing "clicker" grants auto-clicker
+  codeClickerEnabled: boolean;
+  achievements: AchievementsState;
+  firstRebirthPopupShown: boolean;
+
   // Admin / Architect Sandbox Mode ("bobdabuilder")
   adminUnlocked: boolean;
   adminFreeMode: boolean;
+}
+
+export interface SaveStateEntry {
+  id: string;
+  name: string;
+  createdAt: number;
+  isAutoBackup?: boolean;
+  summary: string;
+  data: GameState;
 }

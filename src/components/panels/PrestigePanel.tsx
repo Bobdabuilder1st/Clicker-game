@@ -12,6 +12,7 @@ interface PrestigePanelProps {
   treePoints: number;
   tpToPpMultiplier: number;
   tpToPpPhase: 'exponential' | 'diminishing' | 'capped';
+  essenceToPpMultiplier: number;
   boostCapCeiling: number;
   rpPerSecond: number;
   ppPerSecond: number;
@@ -26,6 +27,7 @@ interface PrestigePanelProps {
   prestigeUpgrades: TieredPerk[];
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   adminFreeMode: boolean;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
@@ -41,6 +43,7 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
   treePoints,
   tpToPpMultiplier,
   tpToPpPhase,
+  essenceToPpMultiplier,
   boostCapCeiling,
   rpPerSecond,
   ppPerSecond,
@@ -50,6 +53,7 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
   prestigeUpgrades,
   multiBuy,
   globalScaleReduction,
+  hardCostMult,
   notation,
   adminFreeMode,
   onMultiBuyChange,
@@ -96,7 +100,12 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               <strong className="font-mono tabular-nums">
                 ×{formatNum(tpToPpMultiplier, notation)}
               </strong>{' '}
-              ({tpToPpPhase} · Cap {formatNum(boostCapCeiling, notation)} TP)
+              ({tpToPpPhase} · Cap {formatNum(boostCapCeiling, notation)})
+              {essenceToPpMultiplier > 1 && (
+                <span className="ml-1.5 text-rose-300">
+                  · Essence → PP: ×{formatNum(essenceToPpMultiplier, notation)}
+                </span>
+              )}
             </p>
           </div>
 
@@ -143,12 +152,12 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
         </div>
       </div>
 
-      {/* Prestige Upgrades (Stop at Tier 10, 10x surge in upper tiers) */}
+      {/* Prestige Upgrades (Max Tier 30, 10x surge in upper tiers) */}
       <div>
         <div className="mb-2.5 flex items-center justify-between px-1">
           <div>
             <h3 className="text-sm font-bold text-white">
-              Prestige Upgrades (Max Tier 10)
+              Prestige Upgrades (Max Tier 30)
               {maxedPrestigeCount > 0 && (
                 <span className="ml-2 font-mono text-xs text-emerald-300">
                   {maxedPrestigeCount}/{prestigeUpgrades.length} Maxed
@@ -156,15 +165,14 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               )}
             </h3>
             <p className="text-xs text-slate-400">
-              Upper tiers (T5–T10) scale exponentially by 10x per tier. Maxed Tier 10 upgrades
-              disappear.
+              Upper tiers scale exponentially by 10x per tier. Maxed Tier 30 upgrades disappear.
             </p>
           </div>
         </div>
 
         {activePrestigeUpgrades.length === 0 ? (
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-6 text-center text-sm font-bold text-emerald-300">
-            All Prestige Upgrades are maxed at Tier 10!
+            All Prestige Upgrades are maxed at Tier 30!
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
@@ -174,7 +182,8 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
                 prestigePoints,
                 multiBuy,
                 globalScaleReduction,
-                adminFreeMode
+                adminFreeMode,
+                hardCostMult
               );
               const isConduit = upg.id === 'pu_conduit';
 

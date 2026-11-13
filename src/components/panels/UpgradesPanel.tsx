@@ -13,6 +13,7 @@ import {
   getEffectiveScale,
   safePow
 } from '../../utils/format';
+import { UPGRADE_MAX_TIER } from '../../utils/gameData';
 import { MultiBuyBar } from '../MultiBuyBar';
 
 interface UpgradesPanelProps {
@@ -27,6 +28,7 @@ interface UpgradesPanelProps {
   completedUpgradeCount: number;
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   hasAutoUpgrades: boolean;
   adminUnlocked: boolean;
@@ -51,6 +53,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
   completedUpgradeCount,
   multiBuy,
   globalScaleReduction,
+  hardCostMult,
   notation,
   hasAutoUpgrades,
   adminUnlocked,
@@ -84,7 +87,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
             canAfford: remaining > 0,
             nextSingleCost: 0
           }
-        : calculateMultiBuy(coins, u.baseCost, effScale, u.tier - 1, multiBuy, remaining);
+        : calculateMultiBuy(coins, u.baseCost, effScale, u.tier - 1, multiBuy, remaining, hardCostMult);
       return { track: u, effScale, buyInfo };
     })
     .sort((a, b) => a.buyInfo.nextSingleCost - b.buyInfo.nextSingleCost);
@@ -98,8 +101,8 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
   ];
 
   const computeCpsDeltaLabel = (track: UpgradeTrackState, buyCount: number): string => {
-    const prevEff = applySoftAndHardCap(track.tier - 1, 15, 35, 0.45);
-    const nextEff = applySoftAndHardCap(track.tier - 1 + buyCount, 15, 35, 0.45);
+    const prevEff = applySoftAndHardCap(track.tier - 1, 15, UPGRADE_MAX_TIER, 0.45);
+    const nextEff = applySoftAndHardCap(track.tier - 1 + buyCount, 15, UPGRADE_MAX_TIER, 0.45);
 
     if (track.category === 'click') {
       const ratio = safePow(track.effectMultiplier, nextEff) / Math.max(1, safePow(track.effectMultiplier, prevEff));
@@ -139,7 +142,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
             </span>
           </div>
           <p className="text-xs text-slate-400">
-            Shows live CPS/s or Click gain for every upgrade. Soft cap T15, Hard cap T35.
+            Shows live CPS/s or Click gain for every upgrade. Soft cap T15, ends at Tier 30.
           </p>
         </div>
 
@@ -180,7 +183,7 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
 
       <div className="grid grid-cols-1 gap-2.5">
         {visibleTracks.map(({ track, effScale, buyInfo }) => {
-          const effTiers = applySoftAndHardCap(track.tier - 1, 15, 35, 0.45);
+          const effTiers = applySoftAndHardCap(track.tier - 1, 15, UPGRADE_MAX_TIER, 0.45);
           const currentMult =
             track.category === 'synergy'
               ? `${(effTiers * 5).toFixed(1)}% / 10 bldgs`
@@ -199,11 +202,11 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-bold text-white">
-                      {track.name} <span className="text-amber-300">T{track.tier}</span>
+                      {track.name} <span className="text-amber-300">T{track.tier}/{track.maxTier}</span>
                     </span>
                     {track.tier > 15 && (
                       <span className="text-[10px] font-bold text-amber-400">
-                        {track.tier >= 35 ? 'HARD CAP' : 'SOFT CAP'}
+                        {track.tier >= UPGRADE_MAX_TIER ? 'MAX T30' : 'SOFT CAP'}
                       </span>
                     )}
                   </div>

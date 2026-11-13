@@ -6,7 +6,7 @@ import {
   SingularityUpgrade
 } from '../../types/game';
 import { formatNum, safePow } from '../../utils/format';
-import { ESSENCE_REACTOR_MAX_LEVEL } from '../../utils/gameData';
+import { ESSENCE_REACTOR_MAX_LEVEL, SINGULARITY_CORE_MAX_LEVEL } from '../../utils/gameData';
 import { isTieredItemMaxed, previewTieredPurchase } from '../../hooks/useGameEngine';
 import { MultiBuyBar } from '../MultiBuyBar';
 
@@ -47,6 +47,7 @@ interface SingularityPanelProps {
   automation: AutomationState;
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   adminFreeMode: boolean;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
@@ -86,6 +87,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
   automation,
   multiBuy,
   globalScaleReduction,
+  hardCostMult,
   notation,
   adminFreeMode,
   onMultiBuyChange,
@@ -95,6 +97,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
   onBuyEssenceReactor,
   onToggleAuto
 }) => {
+  const coreMaxed = singularityCoreLevel >= SINGULARITY_CORE_MAX_LEVEL;
   const tpProgress = adminFreeMode
     ? 100
     : Math.min(100, (treePoints / Math.max(1, singularityCost)) * 100);
@@ -239,7 +242,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
         </div>
       )}
 
-      {/* Singularity Core Level-Up System */}
+      {/* Singularity Core Level-Up System (Max Level 100) */}
       <div className="rounded-3xl border border-fuchsia-500/40 bg-slate-900/85 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -247,11 +250,11 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
               <span className="text-lg">💠</span>
               <h3 className="text-base font-extrabold text-white">Singularity Core Level-Up</h3>
               <span className="font-mono text-xs font-bold text-fuchsia-300 tabular-nums">
-                Lv.{singularityCoreLevel}
+                Lv.{singularityCoreLevel}/{SINGULARITY_CORE_MAX_LEVEL}
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400">
-              Permanently multiplies Coins, RP, Prestige Points, and Tree Points across timelines.
+              Permanently multiplies Coins, RP, Prestige Points, and Tree Points (max Level 100).
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <span className="text-slate-300">
@@ -286,20 +289,28 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
 
           <button
             type="button"
-            disabled={!singularityCoreBuyInfo.canAfford}
+            disabled={coreMaxed || !singularityCoreBuyInfo.canAfford}
             onClick={onLevelUpCore}
             className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              singularityCoreBuyInfo.canAfford
-                ? 'bg-fuchsia-500 text-white shadow-md shadow-fuchsia-500/25 hover:bg-fuchsia-400 active:scale-95'
-                : 'cursor-not-allowed bg-slate-800 text-slate-500'
+              coreMaxed
+                ? 'cursor-default bg-emerald-500/20 text-emerald-300'
+                : singularityCoreBuyInfo.canAfford
+                  ? 'bg-fuchsia-500 text-white shadow-md shadow-fuchsia-500/25 hover:bg-fuchsia-400 active:scale-95'
+                  : 'cursor-not-allowed bg-slate-800 text-slate-500'
             }`}
           >
-            <div>Core Level +{singularityCoreBuyInfo.count}</div>
-            <div className="font-mono text-[11px] tabular-nums">
-              {adminFreeMode
-                ? 'FREE'
-                : `${formatNum(singularityCoreBuyInfo.totalCost, notation)} 🕳️`}
-            </div>
+            {coreMaxed ? (
+              'MAXED (Lv.100)'
+            ) : (
+              <>
+                <div>Core Level +{singularityCoreBuyInfo.count}</div>
+                <div className="font-mono text-[11px] tabular-nums">
+                  {adminFreeMode
+                    ? 'FREE'
+                    : `${formatNum(singularityCoreBuyInfo.totalCost, notation)} 🕳️`}
+                </div>
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -390,8 +401,10 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                 singularityEssence,
                 multiBuy,
                 globalScaleReduction,
-                adminFreeMode
+                adminFreeMode,
+                hardCostMult
               );
+              const isTreeGen = upg.id === 'su_tree_gen';
 
               return (
                 <div
@@ -417,9 +430,11 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                       <p className="mt-0.5 text-xs text-slate-400">{upg.description}</p>
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
                         <span>
-                          Total:{' '}
+                          {isTreeGen ? 'Live Output:' : 'Total:'}{' '}
                           <strong className="font-mono text-rose-200 tabular-nums">
-                            +{formatNum(upg.totalBonus, notation)} {upg.bonusUnit}
+                            {isTreeGen
+                              ? `+${formatNum(tpPerSecond, notation)} TP/s`
+                              : `+${formatNum(upg.totalBonus, notation)} ${upg.bonusUnit}`}
                           </strong>
                         </span>
                         <span>·</span>
