@@ -1,17 +1,26 @@
 import React from 'react';
-import { AutomationState, Building, MultiBuyAmount, NotationType } from '../../types/game';
-import { calculateMultiBuy, formatNum, getEffectiveScale, safePow } from '../../utils/format';
+import {
+  ActiveTab,
+  AutomationState,
+  Building,
+  MultiBuyAmount,
+  NotationType,
+  SectionWaveState
+} from '../../types/game';
+import { D_ZERO, Decimal, calculateMultiBuy, formatNum, getEffectiveScale, safePow } from '../../utils/format';
 import { MultiBuyBar } from '../MultiBuyBar';
+import { SectionWaveUpgrades } from '../SectionWaveUpgrades';
 
 interface BuildingsPanelProps {
   buildings: Building[];
-  coins: number;
-  lifetimeCoins: number;
+  coins: Decimal;
+  lifetimeCoins: Decimal;
+  sectionWave: SectionWaveState;
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
   buildingDiscountMult: number;
   hardCostMult: number;
-  buildingCpsMap: Record<string, number>;
+  buildingCpsMap: Record<string, Decimal>;
   notation: NotationType;
   hasAutoBuildings: boolean;
   adminUnlocked: boolean;
@@ -19,6 +28,7 @@ interface BuildingsPanelProps {
   automation: AutomationState;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onBuyBuilding: (id: string) => void;
+  onBuyWaveUpgrade: (tab: ActiveTab, upgradeId: string) => void;
   onToggleAuto: (key: 'autoBuyBuildings' | 'autoBuyMax') => void;
   onToggleBuildingAuto: (buildingId: string) => void;
   onSetAllBuildingsAuto: (enabled: boolean) => void;
@@ -28,6 +38,7 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
   buildings,
   coins,
   lifetimeCoins,
+  sectionWave,
   multiBuy,
   globalScaleReduction,
   buildingDiscountMult,
@@ -40,6 +51,7 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
   automation,
   onMultiBuyChange,
   onBuyBuilding,
+  onBuyWaveUpgrade,
   onToggleAuto,
   onToggleBuildingAuto,
   onSetAllBuildingsAuto
@@ -47,7 +59,7 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
   let shownLockedPreview = false;
   const visibleBuildings = buildings.filter((b) => {
     if (adminUnlocked) return true;
-    const unlocked = lifetimeCoins >= b.unlockCoins || b.count > 0;
+    const unlocked = lifetimeCoins.gte(b.unlockCoins) || b.count > 0;
     if (unlocked) return true;
     if (!shownLockedPreview) {
       shownLockedPreview = true;
@@ -121,10 +133,10 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
 
       <div className="grid grid-cols-1 gap-2.5">
         {visibleBuildings.map((b) => {
-          const isUnlocked = adminUnlocked || lifetimeCoins >= b.unlockCoins || b.count > 0;
+          const isUnlocked = adminUnlocked || lifetimeCoins.gte(b.unlockCoins) || b.count > 0;
           const effScale = getEffectiveScale(b.scaleFactor, globalScaleReduction);
           const buyInfo = adminFreeMode
-            ? { count: multiBuy === -1 ? 25 : multiBuy, totalCost: 0, canAfford: true }
+            ? { count: multiBuy === -1 ? 25 : multiBuy, totalCost: D_ZERO, canAfford: true }
             : calculateMultiBuy(
                 coins,
                 b.baseCost,
@@ -135,7 +147,7 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
                 buildingDiscountMult * hardCostMult
               );
           const unitCps = buildingCpsMap[b.id] ?? b.baseCps;
-          const totalCps = unitCps * b.count;
+          const totalCps = unitCps.mul(b.count);
           const bAutoEnabled = automation.buildingAutoBuyEnabled[b.id] !== false;
           const milestoneTier = Math.floor(b.count / 25);
           const milestoneMult = safePow(2, milestoneTier);
@@ -248,6 +260,20 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
           );
         })}
       </div>
+
+      <SectionWaveUpgrades
+        tab="buildings"
+        waveState={sectionWave}
+        currency={coins}
+        multiBuy={multiBuy}
+        globalScaleReduction={globalScaleReduction}
+        hardCostMult={hardCostMult}
+        notation={notation}
+        adminFreeMode={adminFreeMode}
+        onBuyWaveUpgrade={onBuyWaveUpgrade}
+      />
     </div>
   );
 });
+
+export default BuildingsPanel;

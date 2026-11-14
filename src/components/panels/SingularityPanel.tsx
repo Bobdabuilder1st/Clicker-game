@@ -1,50 +1,78 @@
 import React from 'react';
 import {
+  ActiveTab,
   AutomationState,
+  EssenceConvergenceUpgrade,
   MultiBuyAmount,
   NotationType,
+  SectionWaveState,
   SingularityUpgrade
 } from '../../types/game';
-import { formatNum, safePow } from '../../utils/format';
+import { Decimal, formatNum, progressPercent, safePow, toDec } from '../../utils/format';
 import { ESSENCE_REACTOR_MAX_LEVEL, SINGULARITY_CORE_MAX_LEVEL } from '../../utils/gameData';
 import { isTieredItemMaxed, previewTieredPurchase } from '../../hooks/useGameEngine';
 import { MultiBuyBar } from '../MultiBuyBar';
+import { SectionWaveUpgrades } from '../SectionWaveUpgrades';
 
 interface SingularityPanelProps {
-  treePoints: number;
+  rebirthPoints: Decimal;
+  prestigePoints: Decimal;
+  treePoints: Decimal;
   singularityCount: number;
   singularityCoreLevel: number;
-  singularityEssence: number;
-  singularityCost: number;
+  singularityEssence: Decimal;
+  singularityCost: Decimal;
   canSingularity: boolean;
-  projectedEssenceGain: number;
-  coreCoinMult: number;
-  coreRpMult: number;
-  corePpMult: number;
-  coreTpMult: number;
+  projectedEssenceGain: Decimal;
+  coreCoinMult: Decimal;
+  coreRpMult: Decimal;
+  corePpMult: Decimal;
+  coreTpMult: Decimal;
   effectiveCoreScale: number;
   singularityCoreBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
   singularityUpgrades: SingularityUpgrade[];
+  sectionWave: SectionWaveState;
+  allSingularityUpgradesMaxed: boolean;
+  essenceConvergenceOpen: boolean;
+  essenceConvergenceMult: Decimal;
+  essenceConvergenceUpgrades: EssenceConvergenceUpgrade[];
+  essenceConvergenceProgress: {
+    rebirthMaxed: number;
+    rebirthTotal: number;
+    prestigeMaxed: number;
+    prestigeTotal: number;
+    skillTreeMaxed: number;
+    skillTreeTotal: number;
+    allRebirthMaxed: boolean;
+    allPrestigeMaxed: boolean;
+    allSkillTreeMaxed: boolean;
+  };
   essenceReactorLevel: number;
   reactorUnlocked: boolean;
   reactorBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
-  essencePerSecond: number;
-  tpPerSecond: number;
+  billionEssenceOpen: boolean;
+  billionEssenceThreshold: number;
+  billionEssenceUpgrades: SingularityUpgrade[];
+  hasAutoBillionEssence: boolean;
+  essencePerSecond: Decimal;
+  tpPerSecond: Decimal;
   hasAutoBuildings: boolean;
   hasAutoUpgrades: boolean;
   hasAutoRebirth: boolean;
   hasAutoPrestige: boolean;
+  hasAutoSkillTree: boolean;
   hasAutoSingularity: boolean;
+  hasAutoTimeUpgrades: boolean;
   hasAutoClicker: boolean;
   automation: AutomationState;
   multiBuy: MultiBuyAmount;
@@ -56,7 +84,10 @@ interface SingularityPanelProps {
   onRequestSingularity: () => void;
   onLevelUpCore: () => void;
   onBuySingularityUpgrade: (id: string) => void;
+  onBuyWaveUpgrade: (tab: ActiveTab, upgradeId: string) => void;
+  onBuyEssenceConvergenceUpgrade: (id: string, multiOverride?: MultiBuyAmount) => void;
   onBuyEssenceReactor: () => void;
+  onBuyBillionEssenceUpgrade: (id: string) => void;
   onToggleAuto: (
     key:
       | 'autoBuyBuildings'
@@ -64,12 +95,17 @@ interface SingularityPanelProps {
       | 'autoLevelClicker'
       | 'autoBuyRebirthUpgrades'
       | 'autoBuyPrestigeUpgrades'
+      | 'autoBuySkillTree'
       | 'autoBuySingularityUpgrades'
+      | 'autoBuyTimeUpgrades'
+      | 'autoBuyBillionEssence'
       | 'autoBuyMax'
   ) => void;
 }
 
 const SingularityPanel: React.FC<SingularityPanelProps> = ({
+  rebirthPoints,
+  prestigePoints,
   treePoints,
   singularityCount,
   singularityCoreLevel,
@@ -84,16 +120,28 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
   effectiveCoreScale,
   singularityCoreBuyInfo,
   singularityUpgrades,
+  sectionWave,
+  allSingularityUpgradesMaxed,
+  essenceConvergenceOpen,
+  essenceConvergenceMult,
+  essenceConvergenceUpgrades,
+  essenceConvergenceProgress,
   essenceReactorLevel,
   reactorUnlocked,
   reactorBuyInfo,
+  billionEssenceOpen,
+  billionEssenceThreshold,
+  billionEssenceUpgrades,
+  hasAutoBillionEssence,
   essencePerSecond,
   tpPerSecond,
   hasAutoBuildings,
   hasAutoUpgrades,
   hasAutoRebirth,
   hasAutoPrestige,
+  hasAutoSkillTree,
   hasAutoSingularity,
+  hasAutoTimeUpgrades,
   hasAutoClicker,
   automation,
   multiBuy,
@@ -105,23 +153,38 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
   onRequestSingularity,
   onLevelUpCore,
   onBuySingularityUpgrade,
+  onBuyWaveUpgrade,
+  onBuyEssenceConvergenceUpgrade,
   onBuyEssenceReactor,
+  onBuyBillionEssenceUpgrade,
   onToggleAuto
 }) => {
   const coreMaxed = singularityCoreLevel >= SINGULARITY_CORE_MAX_LEVEL;
   const tpProgress = adminFreeMode
     ? 100
-    : Math.min(100, (treePoints / Math.max(1, singularityCost)) * 100);
+    : progressPercent(treePoints, singularityCost);
 
   const activeUpgrades = singularityUpgrades.filter((u) => !isTieredItemMaxed(u));
+  const activeEcUpgrades = essenceConvergenceUpgrades.filter((u) => !isTieredItemMaxed(u));
+  const activeBillionUpgrades = billionEssenceOpen
+    ? billionEssenceUpgrades.filter((u) => !isTieredItemMaxed(u))
+    : [];
+  const maxedBillionCount = billionEssenceUpgrades.length - activeBillionUpgrades.length;
+  const billionProgress = adminFreeMode
+    ? 100
+    : progressPercent(singularityEssence, billionEssenceThreshold);
+
   const anyAutoUnlocked =
     hasAutoBuildings ||
     hasAutoUpgrades ||
     hasAutoRebirth ||
     hasAutoPrestige ||
+    hasAutoSkillTree ||
     hasAutoSingularity ||
+    hasAutoTimeUpgrades ||
+    hasAutoBillionEssence ||
     hasAutoClicker;
-  const reactorPerUnitRate = 10 * safePow(2, Math.floor(essenceReactorLevel / 5));
+  const reactorPerUnitRate = toDec(10).mul(safePow(2, Math.floor(essenceReactorLevel / 5)));
 
   return (
     <div className="flex flex-col gap-5">
@@ -138,13 +201,13 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
             <p className="mt-1 max-w-xl text-xs text-slate-300">
               Resets <strong className="text-rose-200">Coins, Rebirth, Prestige, and Skill Tree</strong>.
               Each Singularity gives <strong className="text-rose-200">+1 more Essence</strong> than
-              the last (Next: +{projectedEssenceGain} 🕳️) and costs 10x more Leaves!
-              {tpPerSecond > 0 && (
+              the last (Next: +{formatNum(projectedEssenceGain, notation, 0)} 🕳️) and costs 10x more Leaves!
+              {tpPerSecond.gt(0) && (
                 <span className="ml-1.5 text-emerald-300">
                   · +{formatNum(tpPerSecond, notation)} Leaves/s
                 </span>
               )}
-              {essencePerSecond > 0 && (
+              {essencePerSecond.gt(0) && (
                 <span className="ml-1.5 text-rose-300">
                   · +{formatNum(essencePerSecond, notation)} 🕳️/s
                 </span>
@@ -158,7 +221,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">
-              Singularity Cost (Starts at 1B Leaves · 10x each time · 1 at a time)
+              Singularity Cost (Starts at 1M Leaves · 10x each time · 1 at a time)
             </span>
             <span className="font-mono font-semibold text-rose-200 tabular-nums">
               {formatNum(treePoints, notation)} /{' '}
@@ -188,7 +251,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
             }`}
           >
             {canSingularity
-              ? `Enter Singularity (+${projectedEssenceGain} 🕳️)`
+              ? `Enter Singularity (+${formatNum(projectedEssenceGain, notation, 0)} 🕳️)`
               : `Need ${formatNum(singularityCost, notation)} 🍃`}
           </button>
         </div>
@@ -404,6 +467,19 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                 Auto-Buy Prestige: {automation.autoBuyPrestigeUpgrades ? 'ON' : 'OFF'}
               </button>
             )}
+            {hasAutoSkillTree && (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuySkillTree')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuySkillTree
+                    ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Auto-Buy Skill Tree: {automation.autoBuySkillTree ? 'ON' : 'OFF'}
+              </button>
+            )}
             {hasAutoSingularity && (
               <button
                 type="button"
@@ -415,6 +491,32 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                 }`}
               >
                 Auto-Buy Singularity: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
+              </button>
+            )}
+            {hasAutoTimeUpgrades && (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyTimeUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuyTimeUpgrades
+                    ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Auto-Buy Time: {automation.autoBuyTimeUpgrades ? 'ON' : 'OFF'}
+              </button>
+            )}
+            {hasAutoBillionEssence && (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyBillionEssence')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuyBillionEssence
+                    ? 'border-amber-400 bg-amber-500/25 text-amber-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Auto-Buy Astral: {automation.autoBuyBillionEssence ? 'ON' : 'OFF'}
               </button>
             )}
             {hasAutoClicker && (
@@ -434,21 +536,29 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
         </div>
       )}
 
-      {/* Singularity Upgrades (All start at 1 Essence & increase 10x per purchase) */}
-      <div>
-        <div className="mb-2.5 px-1">
-          <h3 className="text-sm font-bold text-white">Singularity Upgrades</h3>
-          <p className="text-xs text-slate-400">
-            All start at 1 Essence and increase 10x per purchase. Buying every upgrade unlocks the
-            10 Essence/s Reactor!
-          </p>
-        </div>
-
-        {activeUpgrades.length === 0 ? (
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-6 text-center text-sm font-bold text-emerald-300">
-            All Singularity Upgrades maxed!
+      {/* Singularity Upgrades OR Infinite Event Horizon Waves */}
+      {allSingularityUpgradesMaxed || activeUpgrades.length === 0 ? (
+        <SectionWaveUpgrades
+          tab="singularity"
+          waveState={sectionWave}
+          currency={singularityEssence}
+          multiBuy={multiBuy}
+          globalScaleReduction={globalScaleReduction}
+          hardCostMult={hardCostMult}
+          notation={notation}
+          adminFreeMode={adminFreeMode}
+          onBuyWaveUpgrade={onBuyWaveUpgrade}
+        />
+      ) : (
+        <div>
+          <div className="mb-2.5 px-1">
+            <h3 className="text-sm font-bold text-white">Singularity Upgrades</h3>
+            <p className="text-xs text-slate-400">
+              All start at 1 Essence. Buying every upgrade unlocks the 10 Essence/s Reactor; maxing
+              all unlocks infinite 30-tier Event Horizon Waves!
+            </p>
           </div>
-        ) : (
+
           <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
             {activeUpgrades.map((upg) => {
               const preview = previewTieredPurchase(
@@ -511,6 +621,285 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                     className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
                       preview.canAfford
                         ? 'bg-rose-500 text-white hover:bg-rose-400 active:scale-[0.98]'
+                        : 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <span>
+                      Buy +{preview.count}
+                      {preview.willEvolve ? ' (Evolves Tier!)' : ''}
+                    </span>
+                    <span className="font-mono tabular-nums">
+                      {adminFreeMode ? 'FREE' : `${formatNum(preview.totalCost, notation)} 🕳️`}
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {/* 50-Tier Singularity Essence Convergence Upgrades (Unlocked when Rebirth, Prestige & Skill Tree are all maxed) */}
+      {(!essenceConvergenceOpen || activeEcUpgrades.length > 0) && (
+      <div className="rounded-3xl border border-fuchsia-500/40 bg-gradient-to-br from-slate-900 via-fuchsia-950/20 to-rose-950/20 p-5 shadow-xl">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-extrabold text-fuchsia-200">
+              🌌 Singularity Essence Convergence (50 Tiers)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Unlocks once all Rebirth, Prestige &amp; Skill Tree upgrades are maxed · Boosts Singularity Essence gain from Resets &amp; Reactor!
+            </p>
+          </div>
+          {essenceConvergenceOpen && (
+            <span className="font-mono text-xs font-extrabold text-rose-200 tabular-nums">
+              Total Essence Mult: ×{formatNum(essenceConvergenceMult, notation)}
+            </span>
+          )}
+        </div>
+
+        {!essenceConvergenceOpen ? (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div
+              className={`rounded-2xl border p-3 text-xs ${
+                essenceConvergenceProgress.allRebirthMaxed
+                  ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-300'
+                  : 'border-slate-800 bg-slate-950/70 text-slate-300'
+              }`}
+            >
+              <div className="font-bold">Rebirth Upgrades</div>
+              <div className="mt-1 font-mono text-sm font-extrabold tabular-nums">
+                {essenceConvergenceProgress.rebirthMaxed}/{essenceConvergenceProgress.rebirthTotal} Maxed
+              </div>
+            </div>
+            <div
+              className={`rounded-2xl border p-3 text-xs ${
+                essenceConvergenceProgress.allPrestigeMaxed
+                  ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-300'
+                  : 'border-slate-800 bg-slate-950/70 text-slate-300'
+              }`}
+            >
+              <div className="font-bold">Prestige Upgrades</div>
+              <div className="mt-1 font-mono text-sm font-extrabold tabular-nums">
+                {essenceConvergenceProgress.prestigeMaxed}/{essenceConvergenceProgress.prestigeTotal} Maxed
+              </div>
+            </div>
+            <div
+              className={`rounded-2xl border p-3 text-xs ${
+                essenceConvergenceProgress.allSkillTreeMaxed
+                  ? 'border-emerald-500/40 bg-emerald-950/20 text-emerald-300'
+                  : 'border-slate-800 bg-slate-950/70 text-slate-300'
+              }`}
+            >
+              <div className="font-bold">Skill Tree Upgrades</div>
+              <div className="mt-1 font-mono text-sm font-extrabold tabular-nums">
+                {essenceConvergenceProgress.skillTreeMaxed}/{essenceConvergenceProgress.skillTreeTotal} Maxed
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+            {activeEcUpgrades.map((upg) => {
+              const currencyBalance =
+                upg.currency === 'rebirthPoints'
+                  ? rebirthPoints
+                  : upg.currency === 'prestigePoints'
+                    ? prestigePoints
+                    : upg.currency === 'treePoints'
+                      ? treePoints
+                      : singularityEssence;
+              const currencySymbol =
+                upg.currency === 'rebirthPoints'
+                  ? 'RP'
+                  : upg.currency === 'prestigePoints'
+                    ? '💎'
+                    : upg.currency === 'treePoints'
+                      ? '🍃'
+                      : '🕳️';
+
+              const maxed = isTieredItemMaxed(upg);
+              const preview = previewTieredPurchase(
+                upg,
+                currencyBalance,
+                multiBuy,
+                globalScaleReduction,
+                adminFreeMode,
+                hardCostMult
+              );
+
+              return (
+                <div
+                  key={upg.id}
+                  className="flex flex-col justify-between gap-3 rounded-2xl border border-fuchsia-500/35 bg-slate-950/85 p-4 transition-colors hover:border-rose-400/60"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fuchsia-500/30 bg-fuchsia-950/40 text-xl">
+                      {upg.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-bold text-white">
+                          {upg.name}{' '}
+                          <span className="text-fuchsia-300">
+                            T{upg.tier}/{upg.maxTier}
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs font-semibold text-slate-300 tabular-nums shrink-0">
+                          {upg.level}/{upg.tierMaxLevel}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-400">{upg.description}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
+                        <span>
+                          Total:{' '}
+                          <strong className="font-mono text-rose-200 tabular-nums">
+                            +{formatNum(upg.totalBonus, notation)} {upg.bonusUnit}
+                          </strong>
+                        </span>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">
+                          +{formatNum(upg.bonusPerLevel, notation)}/lv
+                        </span>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">
+                          Scale {preview.effectiveScale.toFixed(2)}x
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={maxed || !preview.canAfford}
+                    onClick={() => onBuyEssenceConvergenceUpgrade(upg.id, multiBuy)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      maxed
+                        ? 'cursor-default bg-emerald-500/20 text-emerald-300'
+                        : preview.canAfford
+                          ? 'bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white hover:brightness-110 active:scale-[0.98]'
+                          : 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <span>
+                      {maxed
+                        ? 'MAXED (T50)'
+                        : `Ascend +${preview.count}${preview.willEvolve ? ' (Evolves Tier!)' : ''}`}
+                    </span>
+                    {!maxed && (
+                      <span className="font-mono tabular-nums">
+                        {adminFreeMode
+                          ? 'FREE'
+                          : `${formatNum(preview.totalCost, notation)} ${currencySymbol}`}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
+
+      {/* Astral Horizon Upgrades (Unlocked at 1 Billion Singularity Essence) */}
+      <div className="rounded-3xl border border-amber-400/40 bg-gradient-to-br from-slate-950 via-amber-950/20 to-rose-950/25 p-5 shadow-xl">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-extrabold text-amber-200">
+              🌠 Astral Horizon Upgrades (1B+ Singularity Essence)
+            </h3>
+            <p className="text-xs text-slate-400">
+              Unlocks upon reaching {formatNum(billionEssenceThreshold, notation)} Singularity Essence 🕳️ ·
+              Stays unlocked through Singularity Resets!
+            </p>
+          </div>
+          {billionEssenceOpen && (
+            <span className="font-mono text-xs font-bold text-amber-300 tabular-nums">
+              {maxedBillionCount}/{billionEssenceUpgrades.length} Maxed
+            </span>
+          )}
+        </div>
+
+        {!billionEssenceOpen ? (
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-semibold text-slate-300">
+                🔒 Reach {formatNum(billionEssenceThreshold, notation)} Singularity Essence to unlock
+              </span>
+              <span className="font-mono font-bold text-amber-300 tabular-nums">
+                {formatNum(singularityEssence, notation)} / {formatNum(billionEssenceThreshold, notation)} 🕳️
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-900">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-rose-500 via-amber-400 to-yellow-300 transition-all duration-300"
+                style={{ width: `${billionProgress}%` }}
+              />
+            </div>
+          </div>
+        ) : activeBillionUpgrades.length === 0 ? (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-5 text-center text-sm font-bold text-emerald-300">
+            All Astral Horizon Upgrades maxed!
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
+            {activeBillionUpgrades.map((upg) => {
+              const preview = previewTieredPurchase(
+                upg,
+                singularityEssence,
+                multiBuy,
+                globalScaleReduction,
+                adminFreeMode,
+                hardCostMult
+              );
+
+              return (
+                <div
+                  key={upg.id}
+                  className="flex flex-col justify-between gap-3 rounded-2xl border border-amber-500/35 bg-slate-950/85 p-4 transition-colors hover:border-amber-400/70"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-amber-500/35 bg-amber-950/40 text-xl">
+                      {upg.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-bold text-white">
+                          {upg.name}{' '}
+                          <span className="text-amber-300">
+                            T{upg.tier}/{upg.maxTier}
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs font-semibold text-slate-300 tabular-nums shrink-0">
+                          {upg.level}/{upg.tierMaxLevel}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-400">{upg.description}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
+                        <span>
+                          Total:{' '}
+                          <strong className="font-mono text-amber-200 tabular-nums">
+                            +{formatNum(upg.totalBonus, notation)} {upg.bonusUnit}
+                          </strong>
+                        </span>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">
+                          +{formatNum(upg.bonusPerLevel, notation)}/lv
+                        </span>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">
+                          Scale {preview.effectiveScale.toFixed(2)}x
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={!preview.canAfford}
+                    onClick={() => onBuyBillionEssenceUpgrade(upg.id)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      preview.canAfford
+                        ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 hover:brightness-110 active:scale-[0.98]'
                         : 'cursor-not-allowed bg-slate-800 text-slate-500'
                     }`}
                   >

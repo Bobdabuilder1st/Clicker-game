@@ -1,54 +1,60 @@
 import React, { useState } from 'react';
-import { AutomationState, MultiBuyAmount, NotationType } from '../../types/game';
-import { formatNum } from '../../utils/format';
+import { ActiveTab, AutomationState, MultiBuyAmount, NotationType, SectionWaveState } from '../../types/game';
+import { Decimal, formatNum, progressPercent } from '../../utils/format';
 import { TIME_FLIP_MAX_LEVEL, TIME_TOKEN_BOOST_MAX_LEVEL } from '../../utils/gameData';
 import { MultiBuyBar } from '../MultiBuyBar';
+import { SectionWaveUpgrades } from '../SectionWaveUpgrades';
 
 interface TimeResetPanelProps {
-  singularityEssence: number;
+  singularityEssence: Decimal;
   timeResetCount: number;
-  timeTokens: number;
-  lifetimeTimeTokens: number;
-  timeTokenMult: number;
-  boostCapCeiling: number;
-  timeResetRequiredEssence: number;
+  timeTokens: Decimal;
+  lifetimeTimeTokens: Decimal;
+  timeTokenMult: Decimal;
+  boostCapCeiling: Decimal;
+  timeResetRequiredEssence: Decimal;
   canTimeReset: boolean;
-  projectedTimeTokens: number;
+  projectedTimeTokens: Decimal;
   timeFlipChanceLevel: number;
   timeFlipWinChance: number;
   timeFlipBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
   timeTokenBoostLevel: number;
-  timeTokenBoostMult: number;
+  timeTokenBoostMult: Decimal;
   timeTokenBoostBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
   timeAutoSingularityUnlocked: boolean;
-  timeAutoSingularityCost: number;
+  timeAutoSingularityCost: Decimal;
   canBuyTimeAutoSingularity: boolean;
   hasAutoSingularity: boolean;
+  hasAutoTimeUpgrades: boolean;
   idealTabUnlocked: boolean;
-  idealTabCost: number;
+  idealTabCost: Decimal;
   canUnlockIdealTab: boolean;
   automation: AutomationState;
+  sectionWave: SectionWaveState;
   multiBuy: MultiBuyAmount;
+  globalScaleReduction: number;
+  hardCostMult: number;
   notation: NotationType;
   adminFreeMode: boolean;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
-  onTimeReset: (gambleFlip: boolean) => { won: boolean; awarded: number };
+  onTimeReset: (gambleFlip: boolean) => { won: boolean; awarded: Decimal };
   onBuyTimeFlipUpgrade: () => void;
   onBuyTimeTokenBoost: () => void;
   onBuyTimeAutoSingularity: () => void;
   onUnlockIdealTab: () => void;
   onOpenIdealTab: () => void;
-  onToggleAuto: (key: 'autoBuySingularityUpgrades' | 'autoBuyMax') => void;
+  onBuyWaveUpgrade: (tab: ActiveTab, upgradeId: string) => void;
+  onToggleAuto: (key: 'autoBuySingularityUpgrades' | 'autoBuyTimeUpgrades' | 'autoBuyMax') => void;
 }
 
 const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
@@ -71,11 +77,15 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
   timeAutoSingularityCost,
   canBuyTimeAutoSingularity,
   hasAutoSingularity,
+  hasAutoTimeUpgrades,
   idealTabUnlocked,
   idealTabCost,
   canUnlockIdealTab,
   automation,
+  sectionWave,
   multiBuy,
+  globalScaleReduction,
+  hardCostMult,
   notation,
   adminFreeMode,
   onMultiBuyChange,
@@ -85,15 +95,16 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
   onBuyTimeAutoSingularity,
   onUnlockIdealTab,
   onOpenIdealTab,
+  onBuyWaveUpgrade,
   onToggleAuto
 }) => {
-  const [flipBanner, setFlipBanner] = useState<{ won: boolean; awarded: number; gambled: boolean } | null>(
+  const [flipBanner, setFlipBanner] = useState<{ won: boolean; awarded: Decimal; gambled: boolean } | null>(
     null
   );
 
   const essenceProgress = adminFreeMode
     ? 100
-    : Math.min(100, (singularityEssence / Math.max(1, timeResetRequiredEssence)) * 100);
+    : progressPercent(singularityEssence, timeResetRequiredEssence);
   const coinOddsMaxed = timeFlipChanceLevel >= TIME_FLIP_MAX_LEVEL;
   const tokenBoostMaxed = timeTokenBoostLevel >= TIME_TOKEN_BOOST_MAX_LEVEL;
 
@@ -140,7 +151,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">
-              Time Reset Requirement ({formatNum(timeResetRequiredEssence || 1_000_000, notation)}{' '}
+              Time Reset Requirement ({formatNum(timeResetRequiredEssence.gt(0) ? timeResetRequiredEssence : 1_000_000, notation)}{' '}
               Singularity Essence)
             </span>
             <span className="font-mono font-semibold text-amber-200 tabular-nums">
@@ -208,7 +219,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
               }`}
             >
               Flip Coin ({Math.round(timeFlipWinChance * 100)}% for +
-              {formatNum(projectedTimeTokens * 2, notation)} 🪙 / 0)
+              {formatNum(projectedTimeTokens.mul(2), notation)} 🪙 / 0)
             </button>
           </div>
         </div>
@@ -220,23 +231,38 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
           <div>
             <h3 className="text-sm font-bold text-white">Time Vault Upgrades</h3>
             <p className="text-xs text-slate-400">
-              Upgrade Coin Flip Odds, Token Yield, Singularity Auto-Buy, and unlock the Ideal Tab.
+              Upgrade Coin Flip Odds, Token Yield, Singularity Auto-Buy, and unlock the Idle Tab.
             </p>
           </div>
 
-          {hasAutoSingularity && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onToggleAuto('autoBuySingularityUpgrades')}
-                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
-                  automation.autoBuySingularityUpgrades
-                    ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
-                    : 'border-slate-700 bg-slate-800 text-slate-400'
-                }`}
-              >
-                Auto-Buy Singularity: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
-              </button>
+          {(hasAutoSingularity || hasAutoTimeUpgrades) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {hasAutoTimeUpgrades && (
+                <button
+                  type="button"
+                  onClick={() => onToggleAuto('autoBuyTimeUpgrades')}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                    automation.autoBuyTimeUpgrades
+                      ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                      : 'border-slate-700 bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  Auto-Buy Time: {automation.autoBuyTimeUpgrades ? 'ON' : 'OFF'}
+                </button>
+              )}
+              {hasAutoSingularity && (
+                <button
+                  type="button"
+                  onClick={() => onToggleAuto('autoBuySingularityUpgrades')}
+                  className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                    automation.autoBuySingularityUpgrades
+                      ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                      : 'border-slate-700 bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  Auto-Buy Singularity: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => onToggleAuto('autoBuyMax')}
@@ -399,7 +425,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
             )}
           </div>
 
-          {/* 4. Unlock Ideal Tab (1,000,000 Time Tokens) */}
+          {/* 4. Unlock Idle Tab (1,000,000 Time Tokens) */}
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-fuchsia-500/40 bg-gradient-to-r from-slate-950 via-fuchsia-950/30 to-slate-950 p-4">
             <div className="flex items-start gap-3">
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-fuchsia-400/40 bg-fuchsia-950/50 text-2xl">
@@ -407,13 +433,13 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-white">Unlock &ldquo;Ideal&rdquo; Tab</span>
+                  <span className="text-sm font-bold text-white">Unlock &ldquo;Idle&rdquo; Tab</span>
                   <span className="font-mono text-xs text-fuchsia-300">
                     {idealTabUnlocked ? 'UNLOCKED' : '1,000,000 🪙'}
                   </span>
                 </div>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  Opens the prismatic Ideal XP bar (Red → Orange → Yellow → Green → Blue → Purple →
+                  Opens the prismatic Idle XP bar (Red → Orange → Yellow → Green → Blue → Purple →
                   Violet), awarding colored squares every level-up!
                 </p>
               </div>
@@ -425,7 +451,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
                 onClick={onOpenIdealTab}
                 className="rounded-xl bg-gradient-to-r from-rose-500 via-amber-400 to-violet-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md hover:brightness-110 cursor-pointer whitespace-nowrap shrink-0"
               >
-                Open Ideal Tab →
+                Open Idle Tab →
               </button>
             ) : (
               <button
@@ -438,7 +464,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
                     : 'cursor-not-allowed bg-slate-800 text-slate-500'
                 }`}
               >
-                <div>Unlock Ideal Tab</div>
+                <div>Unlock Idle Tab</div>
                 <div className="font-mono text-[11px] tabular-nums">
                   {adminFreeMode ? 'FREE' : `${formatNum(idealTabCost, notation)} 🪙`}
                 </div>
@@ -447,6 +473,18 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
           </div>
         </div>
       </div>
+
+      <SectionWaveUpgrades
+        tab="timeReset"
+        waveState={sectionWave}
+        currency={timeTokens}
+        multiBuy={multiBuy}
+        globalScaleReduction={globalScaleReduction}
+        hardCostMult={hardCostMult}
+        notation={notation}
+        adminFreeMode={adminFreeMode}
+        onBuyWaveUpgrade={onBuyWaveUpgrade}
+      />
     </div>
   );
 };

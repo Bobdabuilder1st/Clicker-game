@@ -1,30 +1,54 @@
 import React from 'react';
-import { AutomationState, MultiBuyAmount, NotationType, TieredPerk } from '../../types/game';
-import { formatNum } from '../../utils/format';
+import {
+  ActiveTab,
+  AutomationState,
+  EssenceConvergenceUpgrade,
+  MultiBuyAmount,
+  NotationType,
+  SectionWaveState,
+  TieredPerk
+} from '../../types/game';
+import { Decimal, formatNum, progressPercent } from '../../utils/format';
 import { isTieredItemMaxed, previewTieredPurchase } from '../../hooks/useGameEngine';
 import { MultiBuyBar } from '../MultiBuyBar';
+import { SectionWaveUpgrades } from '../SectionWaveUpgrades';
 
 interface PrestigePanelProps {
-  rebirthPoints: number;
+  rebirthPoints: Decimal;
   prestigeLevel: number;
-  prestigePoints: number;
-  lifetimePrestigePoints: number;
-  treePoints: number;
-  tpToPpMultiplier: number;
+  prestigePoints: Decimal;
+  lifetimePrestigePoints: Decimal;
+  treePoints: Decimal;
+  tpToPpMultiplier: Decimal;
   tpToPpPhase: 'exponential' | 'diminishing' | 'capped';
-  essenceToPpMultiplier: number;
-  boostCapCeiling: number;
-  rpPerSecond: number;
-  ppPerSecond: number;
+  essenceToPpMultiplier: Decimal;
+  boostCapCeiling: Decimal;
+  rpPerSecond: Decimal;
+  ppPerSecond: Decimal;
   effectivePrestigeScale: number;
   prestigeBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
-  projectedPrestigePointsGain: number;
+  projectedPrestigePointsGain: Decimal;
   prestigeUpgrades: TieredPerk[];
+  sectionWave: SectionWaveState;
+  allPrestigeMaxed: boolean;
+  essenceConvergenceOpen: boolean;
+  essenceConvergenceUpgrades: EssenceConvergenceUpgrade[];
+  essenceConvergenceProgress: {
+    rebirthMaxed: number;
+    rebirthTotal: number;
+    prestigeMaxed: number;
+    prestigeTotal: number;
+    skillTreeMaxed: number;
+    skillTreeTotal: number;
+    allRebirthMaxed: boolean;
+    allPrestigeMaxed: boolean;
+    allSkillTreeMaxed: boolean;
+  };
   multiBuy: MultiBuyAmount;
   globalScaleReduction: number;
   hardCostMult: number;
@@ -35,6 +59,8 @@ interface PrestigePanelProps {
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onRequestPrestige: () => void;
   onBuyPrestigeUpgrade: (id: string) => void;
+  onBuyWaveUpgrade: (tab: ActiveTab, upgradeId: string) => void;
+  onBuyEssenceConvergenceUpgrade: (id: string, multiOverride?: MultiBuyAmount) => void;
   onToggleAuto: (key: 'autoBuyPrestigeUpgrades' | 'autoBuyMax') => void;
 }
 
@@ -54,6 +80,11 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
   prestigeBuyInfo,
   projectedPrestigePointsGain,
   prestigeUpgrades,
+  sectionWave,
+  allPrestigeMaxed,
+  essenceConvergenceOpen,
+  essenceConvergenceUpgrades,
+  essenceConvergenceProgress,
   multiBuy,
   globalScaleReduction,
   hardCostMult,
@@ -64,13 +95,16 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
   onMultiBuyChange,
   onRequestPrestige,
   onBuyPrestigeUpgrade,
+  onBuyWaveUpgrade,
+  onBuyEssenceConvergenceUpgrade,
   onToggleAuto
 }) => {
   const activePrestigeUpgrades = prestigeUpgrades.filter((u) => !isTieredItemMaxed(u));
   const maxedPrestigeCount = prestigeUpgrades.length - activePrestigeUpgrades.length;
+  const gemEssenceUpg = essenceConvergenceUpgrades.find((u) => u.id === 'ec_gem_prism');
   const rpProgress = adminFreeMode
     ? 100
-    : Math.min(100, (rebirthPoints / Math.max(1, prestigeBuyInfo.nextSingleCost)) * 100);
+    : progressPercent(rebirthPoints, prestigeBuyInfo.nextSingleCost);
 
   return (
     <div className="flex flex-col gap-5">
@@ -89,13 +123,13 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               <strong className="font-mono text-cyan-200 tabular-nums">
                 {formatNum(lifetimePrestigePoints, notation)}
               </strong>{' '}
-              · 1B Gems = 1 Leaf in Skill Tree.
-              {rpPerSecond > 0 && (
+              · 1M Gems = 1 Leaf in Skill Tree.
+              {rpPerSecond.gt(0) && (
                 <span className="ml-1.5 text-emerald-300">
                   · Conduit: +{formatNum(rpPerSecond, notation)} RP/s
                 </span>
               )}
-              {ppPerSecond > 0 && (
+              {ppPerSecond.gt(0) && (
                 <span className="ml-1.5 text-cyan-300">
                   · +{formatNum(ppPerSecond, notation)} Gems/s
                 </span>
@@ -107,7 +141,7 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
                 ×{formatNum(tpToPpMultiplier, notation)}
               </strong>{' '}
               ({tpToPpPhase} · Cap {formatNum(boostCapCeiling, notation)})
-              {essenceToPpMultiplier > 1 && (
+              {essenceToPpMultiplier.gt(1) && (
                 <span className="ml-1.5 text-rose-300">
                   · Essence → Gems: ×{formatNum(essenceToPpMultiplier, notation)}
                 </span>
@@ -203,10 +237,18 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
           )}
         </div>
 
-        {activePrestigeUpgrades.length === 0 ? (
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-950/20 p-6 text-center text-sm font-bold text-emerald-300">
-            All Prestige Upgrades are maxed at Tier 30!
-          </div>
+        {allPrestigeMaxed || activePrestigeUpgrades.length === 0 ? (
+          <SectionWaveUpgrades
+            tab="prestige"
+            waveState={sectionWave}
+            currency={prestigePoints}
+            multiBuy={multiBuy}
+            globalScaleReduction={globalScaleReduction}
+            hardCostMult={hardCostMult}
+            notation={notation}
+            adminFreeMode={adminFreeMode}
+            onBuyWaveUpgrade={onBuyWaveUpgrade}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
             {activePrestigeUpgrades.map((upg) => {
@@ -289,6 +331,99 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
           </div>
         )}
       </div>
+      {/* 50-Tier Singularity Essence Upgrade (Unlocked when all Rebirth, Prestige & Skill Tree upgrades are maxed) */}
+      {(essenceConvergenceProgress.allPrestigeMaxed || essenceConvergenceOpen) &&
+        gemEssenceUpg &&
+        !isTieredItemMaxed(gemEssenceUpg) && (
+        <div className="rounded-3xl border border-fuchsia-500/40 bg-gradient-to-br from-slate-900 via-fuchsia-950/25 to-rose-950/20 p-5 shadow-xl">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-extrabold text-fuchsia-200">
+                🌌 50-Tier Singularity Essence Upgrade (Gems)
+              </h3>
+              <p className="text-xs text-slate-400">
+                Unlocked once all Rebirth, Prestige &amp; Skill Tree upgrades are maxed! See all 4 in Singularity.
+              </p>
+            </div>
+            {!essenceConvergenceOpen && (
+              <span className="font-mono text-xs text-amber-300 tabular-nums">
+                Rebirth {essenceConvergenceProgress.rebirthMaxed}/{essenceConvergenceProgress.rebirthTotal} · Skill Tree {essenceConvergenceProgress.skillTreeMaxed}/{essenceConvergenceProgress.skillTreeTotal}
+              </span>
+            )}
+          </div>
+
+          {essenceConvergenceOpen &&
+            (() => {
+              const maxed = isTieredItemMaxed(gemEssenceUpg);
+              const preview = previewTieredPurchase(
+                gemEssenceUpg,
+                prestigePoints,
+                multiBuy,
+                globalScaleReduction,
+                adminFreeMode,
+                hardCostMult
+              );
+              return (
+                <div className="flex flex-col justify-between gap-3 rounded-2xl border border-fuchsia-500/35 bg-slate-950/85 p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-fuchsia-500/30 bg-fuchsia-950/40 text-xl">
+                      {gemEssenceUpg.icon}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-bold text-white">
+                          {gemEssenceUpg.name}{' '}
+                          <span className="text-fuchsia-300">
+                            T{gemEssenceUpg.tier}/{gemEssenceUpg.maxTier}
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs font-semibold text-slate-300 tabular-nums shrink-0">
+                          {gemEssenceUpg.level}/{gemEssenceUpg.tierMaxLevel}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-400">{gemEssenceUpg.description}</p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
+                        <span>
+                          Total:{' '}
+                          <strong className="font-mono text-rose-200 tabular-nums">
+                            +{formatNum(gemEssenceUpg.totalBonus, notation)} {gemEssenceUpg.bonusUnit}
+                          </strong>
+                        </span>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">
+                          +{formatNum(gemEssenceUpg.bonusPerLevel, notation)}/lv
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={maxed || !preview.canAfford}
+                    onClick={() => onBuyEssenceConvergenceUpgrade(gemEssenceUpg.id, multiBuy)}
+                    className={`flex w-full items-center justify-between rounded-xl px-3.5 py-2 text-xs font-bold transition-all cursor-pointer ${
+                      maxed
+                        ? 'cursor-default bg-emerald-500/20 text-emerald-300'
+                        : preview.canAfford
+                          ? 'bg-gradient-to-r from-fuchsia-500 to-rose-500 text-white hover:brightness-110 active:scale-[0.98]'
+                          : 'cursor-not-allowed bg-slate-800 text-slate-500'
+                    }`}
+                  >
+                    <span>
+                      {maxed
+                        ? 'MAXED (T50)'
+                        : `Ascend +${preview.count}${preview.willEvolve ? ' (Evolves Tier!)' : ''}`}
+                    </span>
+                    {!maxed && (
+                      <span className="font-mono tabular-nums">
+                        {adminFreeMode ? 'FREE' : `${formatNum(preview.totalCost, notation)} 💎`}
+                      </span>
+                    )}
+                  </button>
+                </div>
+              );
+            })()}
+        </div>
+      )}
     </div>
   );
 };

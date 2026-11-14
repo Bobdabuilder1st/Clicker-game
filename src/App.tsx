@@ -1,21 +1,33 @@
-import React, { Suspense, lazy, useState } from 'react';
-import { ActiveTab } from './types/game';
+import React, { Suspense, lazy, useCallback, useState } from 'react';
+import { ActiveTab, MultiBuyAmount } from './types/game';
 import { useGameEngine } from './hooks/useGameEngine';
 import { formatNum } from './utils/format';
 import { ClickerSection } from './components/ClickerSection';
-import { BuildingsPanel } from './components/panels/BuildingsPanel';
-import { UpgradesPanel } from './components/panels/UpgradesPanel';
-import { AdminModal } from './components/AdminModal';
-import { SaveStatesModal } from './components/SaveStatesModal';
-import { AchievementsModal, FirstRebirthPopup } from './components/AchievementsModal';
-import { CodesModal } from './components/CodesModal';
 
+const BuildingsPanel = lazy(() => import('./components/panels/BuildingsPanel'));
+const UpgradesPanel = lazy(() => import('./components/panels/UpgradesPanel'));
 const RebirthPanel = lazy(() => import('./components/panels/RebirthPanel'));
 const PrestigePanel = lazy(() => import('./components/panels/PrestigePanel'));
 const SkillTreePanel = lazy(() => import('./components/panels/SkillTreePanel'));
 const SingularityPanel = lazy(() => import('./components/panels/SingularityPanel'));
 const TimeResetPanel = lazy(() => import('./components/panels/TimeResetPanel'));
 const IdealPanel = lazy(() => import('./components/panels/IdealPanel'));
+
+const AdminModal = lazy(() =>
+  import('./components/AdminModal').then((m) => ({ default: m.AdminModal }))
+);
+const SaveStatesModal = lazy(() =>
+  import('./components/SaveStatesModal').then((m) => ({ default: m.SaveStatesModal }))
+);
+const AchievementsModal = lazy(() =>
+  import('./components/AchievementsModal').then((m) => ({ default: m.AchievementsModal }))
+);
+const FirstRebirthPopup = lazy(() =>
+  import('./components/AchievementsModal').then((m) => ({ default: m.FirstRebirthPopup }))
+);
+const CodesModal = lazy(() =>
+  import('./components/CodesModal').then((m) => ({ default: m.CodesModal }))
+);
 
 type ConfirmModalType = 'rebirth' | 'prestige' | 'treeReset' | 'singularity' | 'hardReset' | null;
 
@@ -49,12 +61,16 @@ export function App() {
     buyBuilding,
     buyUpgradeTrack,
     buyRebirthPerk,
+    buyAscendedRebirthPerk,
     buyPrestigeUpgrade,
     buySkillNode,
     isSkillNodeUnlocked,
     levelUpSingularityCore,
     buySingularityUpgrade,
     buyEssenceReactor,
+    buyEssenceConvergenceUpgrade,
+    buyBillionEssenceUpgrade,
+    buySectionWaveUpgrade,
     triggerRebirth,
     triggerPrestige,
     triggerTreeReset,
@@ -64,6 +80,7 @@ export function App() {
     buyTimeTokenBoostUpgrade,
     buyTimeAutoSingularity,
     unlockIdealTab,
+    buyTimeAutoUpgrades,
     unlockAdminWithCode,
     toggleAdminFreeMode,
     adminGrantResources,
@@ -71,7 +88,53 @@ export function App() {
     hardReset
   } = useGameEngine(activeTab);
 
-  const totalCpsWithAuto = stats.coinsPerSecond + stats.autoClicksPerSecond * stats.coinsPerClick;
+  const handleCoinCoreMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('coinCore', val),
+    [setSectionMultiBuy]
+  );
+  const handleBuildingsMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('buildings', val),
+    [setSectionMultiBuy]
+  );
+  const handleUpgradesMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('upgrades', val),
+    [setSectionMultiBuy]
+  );
+  const handleRebirthMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('rebirth', val),
+    [setSectionMultiBuy]
+  );
+  const handlePrestigeMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('prestige', val),
+    [setSectionMultiBuy]
+  );
+  const handleSkillTreeMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('skillTree', val),
+    [setSectionMultiBuy]
+  );
+  const handleSingularityMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('singularity', val),
+    [setSectionMultiBuy]
+  );
+  const handleTimeResetMultiChange = useCallback(
+    (val: MultiBuyAmount) => setSectionMultiBuy('timeReset', val),
+    [setSectionMultiBuy]
+  );
+
+  const handleRequestRebirth = useCallback(() => setConfirmModal('rebirth'), []);
+  const handleRequestPrestige = useCallback(() => setConfirmModal('prestige'), []);
+  const handleRequestTreeReset = useCallback(() => setConfirmModal('treeReset'), []);
+  const handleRequestSingularity = useCallback(() => setConfirmModal('singularity'), []);
+  const handleOpenIdealTab = useCallback(() => setActiveTab('ideal'), []);
+
+  const handleCloseSaves = useCallback(() => setSavesOpen(false), []);
+  const handleCreateManualSave = useCallback((name?: string) => createSaveState(name, false), [createSaveState]);
+  const handleCloseAchievements = useCallback(() => setAchievementsOpen(false), []);
+  const handleRedeemClickerNow = useCallback(() => redeemCode('clicker'), [redeemCode]);
+  const handleCloseCodes = useCallback(() => setCodesOpen(false), []);
+  const handleCloseAdmin = useCallback(() => setAdminOpen(false), []);
+
+  const totalCpsWithAuto = stats.coinsPerSecond.add(stats.coinsPerClick.mul(stats.autoClicksPerSecond));
   const completedAchievements =
     (state.achievements.firstRebirth ? 1 : 0) +
     (state.achievements.firstPrestige ? 1 : 0) +
@@ -87,7 +150,7 @@ export function App() {
     { id: 'timeReset', label: 'Time Reset', ready: stats.canTimeReset },
     {
       id: 'ideal',
-      label: 'Ideal',
+      label: state.idealTabUnlocked ? 'Idle' : '🔒 Idle',
       ready: !state.idealTabUnlocked && stats.canUnlockIdealTab
     }
   ];
@@ -152,7 +215,7 @@ export function App() {
                 </div>
                 <div className="font-mono text-sm font-bold text-purple-200 tabular-nums leading-tight">
                   {formatNum(state.rebirthPoints, state.notation)} RP
-                  {stats.rpPerSecond > 0 && (
+                  {stats.rpPerSecond.gt(0) && (
                     <span className="ml-1 text-xs text-emerald-300">
                       (+{formatNum(stats.rpPerSecond, state.notation)}/s)
                     </span>
@@ -160,7 +223,7 @@ export function App() {
                 </div>
               </div>
 
-              {(state.prestigePoints > 0 || state.lifetimePrestigePoints > 0 || state.adminUnlocked) && (
+              {(state.prestigePoints.gt(0) || state.lifetimePrestigePoints.gt(0) || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
                     Gems
@@ -171,7 +234,7 @@ export function App() {
                 </div>
               )}
 
-              {(state.treePoints > 0 || state.lifetimeTreePoints > 0 || state.adminUnlocked) && (
+              {(state.treePoints.gt(0) || state.lifetimeTreePoints.gt(0) || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
                     Leaves
@@ -182,7 +245,7 @@ export function App() {
                 </div>
               )}
 
-              {(state.singularityEssence > 0 || state.singularityCount > 0 || state.adminUnlocked) && (
+              {(state.singularityEssence.gt(0) || state.singularityCount > 0 || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-rose-300">
                     Essence
@@ -193,13 +256,24 @@ export function App() {
                 </div>
               )}
 
-              {(state.timeTokens > 0 || state.timeResetCount > 0 || state.adminUnlocked) && (
+              {(state.timeTokens.gt(0) || state.timeResetCount > 0 || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
                     Time Tokens
                   </div>
                   <div className="font-mono text-sm font-bold text-amber-200 tabular-nums leading-tight">
                     {formatNum(state.timeTokens, state.notation)} 🪙
+                  </div>
+                </div>
+              )}
+
+              {stats.omniEverythingMult.gt(1) && (
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-fuchsia-300">
+                    Omni-Boost
+                  </div>
+                  <div className="font-mono text-sm font-bold text-fuchsia-200 tabular-nums leading-tight">
+                    ×{formatNum(stats.omniEverythingMult, state.notation)} All
                   </div>
                 </div>
               )}
@@ -306,7 +380,7 @@ export function App() {
             onToggleCodeClicker={toggleCodeClicker}
             onManualClick={handleManualClick}
             onLevelUpClicker={levelUpClicker}
-            onCoinCoreMultiChange={(val) => setSectionMultiBuy('coinCore', val)}
+            onCoinCoreMultiChange={handleCoinCoreMultiChange}
           />
         </section>
 
@@ -346,54 +420,6 @@ export function App() {
             })}
           </nav>
 
-          {activeTab === 'buildings' && (
-            <BuildingsPanel
-              buildings={state.buildings}
-              coins={state.coins}
-              lifetimeCoins={state.lifetimeCoins}
-              multiBuy={state.multiBuyBySection.buildings}
-              globalScaleReduction={stats.globalScaleReduction}
-              buildingDiscountMult={stats.buildingDiscountMult}
-              hardCostMult={stats.hardCostMult}
-              buildingCpsMap={stats.buildingCpsMap}
-              notation={state.notation}
-              hasAutoBuildings={stats.hasAutoBuildings}
-              adminUnlocked={state.adminUnlocked}
-              adminFreeMode={state.adminFreeMode}
-              automation={state.automation}
-              onMultiBuyChange={(val) => setSectionMultiBuy('buildings', val)}
-              onBuyBuilding={buyBuilding}
-              onToggleAuto={toggleAutomation}
-              onToggleBuildingAuto={toggleBuildingAutoBuy}
-              onSetAllBuildingsAuto={setAllBuildingsAutoBuy}
-            />
-          )}
-
-          {activeTab === 'upgrades' && (
-            <UpgradesPanel
-              upgradeTracks={state.upgradeTracks}
-              buildings={state.buildings}
-              buildingCpsMap={stats.buildingCpsMap}
-              coinsPerSecond={stats.coinsPerSecond}
-              coinsPerClick={stats.coinsPerClick}
-              totalBuildingsOwned={stats.totalBuildingsOwned}
-              lifetimeCoins={state.lifetimeCoins}
-              coins={state.coins}
-              completedUpgradeCount={state.completedUpgradeCount}
-              multiBuy={state.multiBuyBySection.upgrades}
-              globalScaleReduction={stats.globalScaleReduction}
-              hardCostMult={stats.hardCostMult}
-              notation={state.notation}
-              hasAutoUpgrades={stats.hasAutoUpgrades}
-              adminUnlocked={state.adminUnlocked}
-              adminFreeMode={state.adminFreeMode}
-              automation={state.automation}
-              onMultiBuyChange={(val) => setSectionMultiBuy('upgrades', val)}
-              onBuyUpgrade={buyUpgradeTrack}
-              onToggleAuto={toggleAutomation}
-            />
-          )}
-
           <Suspense
             fallback={
               <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-8 text-center text-xs text-slate-400">
@@ -401,6 +427,59 @@ export function App() {
               </div>
             }
           >
+            {activeTab === 'buildings' && (
+              <BuildingsPanel
+                buildings={state.buildings}
+                coins={state.coins}
+                lifetimeCoins={state.lifetimeCoins}
+                sectionWave={state.sectionWaves.buildings}
+                multiBuy={state.multiBuyBySection.buildings}
+                globalScaleReduction={stats.globalScaleReduction}
+                buildingDiscountMult={stats.buildingDiscountMult}
+                hardCostMult={stats.hardCostMult}
+                buildingCpsMap={stats.buildingCpsMap}
+                notation={state.notation}
+                hasAutoBuildings={stats.hasAutoBuildings}
+                adminUnlocked={state.adminUnlocked}
+                adminFreeMode={state.adminFreeMode}
+                automation={state.automation}
+                onMultiBuyChange={handleBuildingsMultiChange}
+                onBuyBuilding={buyBuilding}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onToggleAuto={toggleAutomation}
+                onToggleBuildingAuto={toggleBuildingAutoBuy}
+                onSetAllBuildingsAuto={setAllBuildingsAutoBuy}
+              />
+            )}
+
+            {activeTab === 'upgrades' && (
+              <UpgradesPanel
+                upgradeTracks={state.upgradeTracks}
+                buildings={state.buildings}
+                buildingCpsMap={stats.buildingCpsMap}
+                coinsPerSecond={stats.coinsPerSecond}
+                coinsPerClick={stats.coinsPerClick}
+                totalBuildingsOwned={stats.totalBuildingsOwned}
+                lifetimeCoins={state.lifetimeCoins}
+                coins={state.coins}
+                completedUpgradeCount={state.completedUpgradeCount}
+                sectionWave={state.sectionWaves.upgrades}
+                allUpgradeTracksMaxed={stats.allUpgradeTracksMaxed}
+                multiBuy={state.multiBuyBySection.upgrades}
+                globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
+                notation={state.notation}
+                hasAutoUpgrades={stats.hasAutoUpgrades}
+                adminUnlocked={state.adminUnlocked}
+                adminFreeMode={state.adminFreeMode}
+                automation={state.automation}
+                onMultiBuyChange={handleUpgradesMultiChange}
+                onBuyUpgrade={buyUpgradeTrack}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onToggleAuto={toggleAutomation}
+              />
+            )}
+
             {activeTab === 'rebirth' && (
               <RebirthPanel
                 coins={state.coins}
@@ -421,16 +500,28 @@ export function App() {
                 rebirthBuyInfo={stats.rebirthBuyInfo}
                 projectedRebirthRpGain={stats.projectedRebirthRpGain}
                 rebirthPerks={state.rebirthPerks}
+                ascendedRebirthPerks={state.ascendedRebirthPerks}
+                allBaseRebirthPerksMaxed={stats.allBaseRebirthPerksMaxed}
+                effectiveAscendedRebirthBaseCost={stats.effectiveAscendedRebirthBaseCost}
+                sectionWave={state.sectionWaves.rebirth}
+                allRebirthMaxed={stats.essenceConvergenceProgress.allRebirthMaxed}
+                essenceConvergenceOpen={stats.essenceConvergenceOpen}
+                essenceConvergenceUpgrades={state.essenceConvergenceUpgrades}
+                essenceConvergenceProgress={stats.essenceConvergenceProgress}
                 multiBuy={state.multiBuyBySection.rebirth}
                 globalScaleReduction={stats.globalScaleReduction}
                 hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 hasAutoRebirth={stats.hasAutoRebirth}
+                adminUnlocked={state.adminUnlocked}
                 adminFreeMode={state.adminFreeMode}
                 automation={state.automation}
-                onMultiBuyChange={(val) => setSectionMultiBuy('rebirth', val)}
-                onRequestRebirth={() => setConfirmModal('rebirth')}
+                onMultiBuyChange={handleRebirthMultiChange}
+                onRequestRebirth={handleRequestRebirth}
                 onBuyPerk={buyRebirthPerk}
+                onBuyAscendedPerk={buyAscendedRebirthPerk}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onBuyEssenceConvergenceUpgrade={buyEssenceConvergenceUpgrade}
                 onToggleAuto={toggleAutomation}
               />
             )}
@@ -452,6 +543,11 @@ export function App() {
                 prestigeBuyInfo={stats.prestigeBuyInfo}
                 projectedPrestigePointsGain={stats.projectedPrestigePointsGain}
                 prestigeUpgrades={state.prestigeUpgrades}
+                sectionWave={state.sectionWaves.prestige}
+                allPrestigeMaxed={stats.essenceConvergenceProgress.allPrestigeMaxed}
+                essenceConvergenceOpen={stats.essenceConvergenceOpen}
+                essenceConvergenceUpgrades={state.essenceConvergenceUpgrades}
+                essenceConvergenceProgress={stats.essenceConvergenceProgress}
                 multiBuy={state.multiBuyBySection.prestige}
                 globalScaleReduction={stats.globalScaleReduction}
                 hardCostMult={stats.hardCostMult}
@@ -459,9 +555,11 @@ export function App() {
                 hasAutoPrestige={stats.hasAutoPrestige}
                 adminFreeMode={state.adminFreeMode}
                 automation={state.automation}
-                onMultiBuyChange={(val) => setSectionMultiBuy('prestige', val)}
-                onRequestPrestige={() => setConfirmModal('prestige')}
+                onMultiBuyChange={handlePrestigeMultiChange}
+                onRequestPrestige={handleRequestPrestige}
                 onBuyPrestigeUpgrade={buyPrestigeUpgrade}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onBuyEssenceConvergenceUpgrade={buyEssenceConvergenceUpgrade}
                 onToggleAuto={toggleAutomation}
               />
             )}
@@ -481,21 +579,33 @@ export function App() {
                 treeBuyInfo={stats.treeBuyInfo}
                 projectedTreePointsGain={stats.projectedTreePointsGain}
                 skillNodes={state.skillNodes}
+                sectionWave={state.sectionWaves.skillTree}
+                allSkillTreeMaxed={stats.essenceConvergenceProgress.allSkillTreeMaxed}
+                essenceConvergenceOpen={stats.essenceConvergenceOpen}
+                essenceConvergenceUpgrades={state.essenceConvergenceUpgrades}
+                essenceConvergenceProgress={stats.essenceConvergenceProgress}
                 multiBuy={state.multiBuyBySection.skillTree}
                 globalScaleReduction={stats.globalScaleReduction}
                 hardCostMult={stats.hardCostMult}
                 notation={state.notation}
+                hasAutoSkillTree={stats.hasAutoSkillTree}
+                automation={state.automation}
                 adminUnlocked={state.adminUnlocked}
                 adminFreeMode={state.adminFreeMode}
                 isSkillNodeUnlocked={isSkillNodeUnlocked}
-                onMultiBuyChange={(val) => setSectionMultiBuy('skillTree', val)}
-                onRequestTreeReset={() => setConfirmModal('treeReset')}
+                onMultiBuyChange={handleSkillTreeMultiChange}
+                onRequestTreeReset={handleRequestTreeReset}
                 onBuySkillNode={buySkillNode}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onBuyEssenceConvergenceUpgrade={buyEssenceConvergenceUpgrade}
+                onToggleAuto={toggleAutomation}
               />
             )}
 
             {activeTab === 'singularity' && (
               <SingularityPanel
+                rebirthPoints={state.rebirthPoints}
+                prestigePoints={state.prestigePoints}
                 treePoints={state.treePoints}
                 singularityCount={state.singularityCount}
                 singularityCoreLevel={state.singularityCoreLevel}
@@ -510,16 +620,28 @@ export function App() {
                 effectiveCoreScale={stats.effectiveCoreScale}
                 singularityCoreBuyInfo={stats.singularityCoreBuyInfo}
                 singularityUpgrades={state.singularityUpgrades}
+                sectionWave={state.sectionWaves.singularity}
+                allSingularityUpgradesMaxed={stats.allSingularityUpgradesMaxed}
+                essenceConvergenceOpen={stats.essenceConvergenceOpen}
+                essenceConvergenceMult={stats.essenceConvergenceMult}
+                essenceConvergenceUpgrades={state.essenceConvergenceUpgrades}
+                essenceConvergenceProgress={stats.essenceConvergenceProgress}
                 essenceReactorLevel={state.essenceReactorLevel}
                 reactorUnlocked={stats.reactorUnlocked}
                 reactorBuyInfo={stats.reactorBuyInfo}
+                billionEssenceOpen={stats.billionEssenceOpen}
+                billionEssenceThreshold={stats.billionEssenceThreshold}
+                billionEssenceUpgrades={state.billionEssenceUpgrades}
+                hasAutoBillionEssence={stats.hasAutoBillionEssence}
                 essencePerSecond={stats.essencePerSecond}
                 tpPerSecond={stats.tpPerSecond}
                 hasAutoBuildings={stats.hasAutoBuildings}
                 hasAutoUpgrades={stats.hasAutoUpgrades}
                 hasAutoRebirth={stats.hasAutoRebirth}
                 hasAutoPrestige={stats.hasAutoPrestige}
+                hasAutoSkillTree={stats.hasAutoSkillTree}
                 hasAutoSingularity={stats.hasAutoSingularity}
+                hasAutoTimeUpgrades={stats.hasAutoTimeUpgrades}
                 hasAutoClicker={stats.hasAutoClicker}
                 automation={state.automation}
                 multiBuy={state.multiBuyBySection.singularity}
@@ -527,11 +649,14 @@ export function App() {
                 hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 adminFreeMode={state.adminFreeMode}
-                onMultiBuyChange={(val) => setSectionMultiBuy('singularity', val)}
-                onRequestSingularity={() => setConfirmModal('singularity')}
+                onMultiBuyChange={handleSingularityMultiChange}
+                onRequestSingularity={handleRequestSingularity}
                 onLevelUpCore={levelUpSingularityCore}
                 onBuySingularityUpgrade={buySingularityUpgrade}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onBuyEssenceConvergenceUpgrade={buyEssenceConvergenceUpgrade}
                 onBuyEssenceReactor={buyEssenceReactor}
+                onBuyBillionEssenceUpgrade={buyBillionEssenceUpgrade}
                 onToggleAuto={toggleAutomation}
               />
             )}
@@ -557,20 +682,25 @@ export function App() {
                 timeAutoSingularityCost={stats.timeAutoSingularityCost}
                 canBuyTimeAutoSingularity={stats.canBuyTimeAutoSingularity}
                 hasAutoSingularity={stats.hasAutoSingularity}
+                hasAutoTimeUpgrades={stats.hasAutoTimeUpgrades}
                 idealTabUnlocked={state.idealTabUnlocked}
                 idealTabCost={stats.idealTabCost}
                 canUnlockIdealTab={stats.canUnlockIdealTab}
                 automation={state.automation}
+                sectionWave={state.sectionWaves.timeReset}
                 multiBuy={state.multiBuyBySection.timeReset}
+                globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
                 notation={state.notation}
                 adminFreeMode={state.adminFreeMode}
-                onMultiBuyChange={(val) => setSectionMultiBuy('timeReset', val)}
+                onMultiBuyChange={handleTimeResetMultiChange}
                 onTimeReset={triggerTimeReset}
                 onBuyTimeFlipUpgrade={buyTimeFlipUpgrade}
                 onBuyTimeTokenBoost={buyTimeTokenBoostUpgrade}
                 onBuyTimeAutoSingularity={buyTimeAutoSingularity}
                 onUnlockIdealTab={unlockIdealTab}
-                onOpenIdealTab={() => setActiveTab('ideal')}
+                onOpenIdealTab={handleOpenIdealTab}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
                 onToggleAuto={toggleAutomation}
               />
             )}
@@ -583,58 +713,85 @@ export function App() {
                 timeTokens={state.timeTokens}
                 ideal={state.ideal}
                 idealXpPerSecond={stats.idealXpPerSecond}
+                totalIdleXp={stats.totalIdleXp}
+                availableIdleXp={stats.availableIdleXp}
+                idleAutoTimeCost={stats.idleAutoTimeCost}
+                canBuyTimeAutoUpgrades={stats.canBuyTimeAutoUpgrades}
+                timeAutoTokenUpgradesUnlocked={state.timeAutoTokenUpgradesUnlocked}
+                hasAutoTimeUpgrades={stats.hasAutoTimeUpgrades}
+                automation={state.automation}
+                sectionWave={state.sectionWaves.ideal}
+                multiBuy={state.multiBuyBySection.timeReset}
+                globalScaleReduction={stats.globalScaleReduction}
+                hardCostMult={stats.hardCostMult}
+                idleBoosts={stats.idleBoosts}
                 notation={state.notation}
-                adminUnlocked={state.adminUnlocked}
                 adminFreeMode={state.adminFreeMode}
+                onMultiBuyChange={handleTimeResetMultiChange}
                 onUnlockIdealTab={unlockIdealTab}
+                onBuyTimeAutoUpgrades={buyTimeAutoUpgrades}
+                onBuyWaveUpgrade={buySectionWaveUpgrade}
+                onToggleAuto={toggleAutomation}
               />
             )}
           </Suspense>
         </section>
       </main>
 
-      {/* Modals */}
-      <SaveStatesModal
-        isOpen={savesOpen}
-        saveStates={saveStates}
-        onClose={() => setSavesOpen(false)}
-        onCreateSave={(name) => createSaveState(name, false)}
-        onLoadSave={loadSaveState}
-        onDeleteSave={deleteSaveState}
-      />
+      {/* Lazy-Loaded Modals (mounted only when opened) */}
+      <Suspense fallback={null}>
+        {savesOpen && (
+          <SaveStatesModal
+            isOpen={savesOpen}
+            saveStates={saveStates}
+            onClose={handleCloseSaves}
+            onCreateSave={handleCreateManualSave}
+            onLoadSave={loadSaveState}
+            onDeleteSave={deleteSaveState}
+          />
+        )}
 
-      <AchievementsModal
-        isOpen={achievementsOpen}
-        achievements={state.achievements}
-        codeClickerUnlocked={state.codeClickerUnlocked}
-        onClose={() => setAchievementsOpen(false)}
-      />
+        {achievementsOpen && (
+          <AchievementsModal
+            isOpen={achievementsOpen}
+            achievements={state.achievements}
+            codeClickerUnlocked={state.codeClickerUnlocked}
+            onClose={handleCloseAchievements}
+          />
+        )}
 
-      <FirstRebirthPopup
-        isOpen={firstRebirthPopupOpen}
-        onClose={dismissFirstRebirthPopup}
-        onRedeemClickerNow={() => redeemCode('clicker')}
-      />
+        {firstRebirthPopupOpen && (
+          <FirstRebirthPopup
+            isOpen={firstRebirthPopupOpen}
+            onClose={dismissFirstRebirthPopup}
+            onRedeemClickerNow={handleRedeemClickerNow}
+          />
+        )}
 
-      <CodesModal
-        isOpen={codesOpen}
-        hardMode={state.hardMode}
-        codeClickerUnlocked={state.codeClickerUnlocked}
-        adminUnlocked={state.adminUnlocked}
-        onClose={() => setCodesOpen(false)}
-        onRedeemCode={redeemCode}
-      />
+        {codesOpen && (
+          <CodesModal
+            isOpen={codesOpen}
+            hardMode={state.hardMode}
+            codeClickerUnlocked={state.codeClickerUnlocked}
+            adminUnlocked={state.adminUnlocked}
+            onClose={handleCloseCodes}
+            onRedeemCode={redeemCode}
+          />
+        )}
 
-      <AdminModal
-        isOpen={adminOpen}
-        adminUnlocked={state.adminUnlocked}
-        adminFreeMode={state.adminFreeMode}
-        onClose={() => setAdminOpen(false)}
-        onSubmitCode={unlockAdminWithCode}
-        onToggleFreeMode={toggleAdminFreeMode}
-        onGrantResources={adminGrantResources}
-        onExitAdmin={exitAdminMode}
-      />
+        {adminOpen && (
+          <AdminModal
+            isOpen={adminOpen}
+            adminUnlocked={state.adminUnlocked}
+            adminFreeMode={state.adminFreeMode}
+            onClose={handleCloseAdmin}
+            onSubmitCode={unlockAdminWithCode}
+            onToggleFreeMode={toggleAdminFreeMode}
+            onGrantResources={adminGrantResources}
+            onExitAdmin={exitAdminMode}
+          />
+        )}
+      </Suspense>
 
       {/* In-App Confirmation Modal */}
       {confirmModal && (

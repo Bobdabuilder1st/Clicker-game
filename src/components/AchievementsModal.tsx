@@ -40,7 +40,7 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     {
       id: 'firstSkillTree',
       title: 'First Skill Tree',
-      description: 'Reach 1,000,000,000 Gems and harvest your first Leaf.',
+      description: 'Reach 1,000,000 Gems and harvest your first Leaf.',
       icon: '🍃',
       unlocked: achievements.firstSkillTree,
       rewardText: 'Marks awakening of the World Skill Tree'

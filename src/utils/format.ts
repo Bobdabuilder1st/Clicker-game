@@ -1,7 +1,13 @@
+import Decimal, { type DecimalSource } from 'break_eternity.js';
 import { MultiBuyAmount, NotationType } from '../types/game';
 
-export const GOOGOL = 1e100;
-export const FLOAT_SAFE_MAX = 1e305;
+export { Decimal };
+export type { DecimalSource };
+
+export const D_ZERO = new Decimal(0);
+export const D_ONE = new Decimal(1);
+export const GOOGOL = Decimal.pow10(100);
+const GOOGOL_CEIL = Decimal.pow10(103);
 
 const SUFFIXES = [
   '',
@@ -41,127 +47,198 @@ const SUFFIXES = [
 ];
 
 /**
- * Prevents NaN or IEEE-754 Infinity crashes without enforcing an artificial 1e100 ceiling.
+ * Safely hydrates any number, string, Decimal, or serialized component object into a valid Decimal.
+ * Never imposes a 1e305 ceiling.
  */
-export function safeNum(n: number): number {
-  if (Number.isNaN(n)) return 0;
-  if (!Number.isFinite(n)) return n > 0 ? FLOAT_SAFE_MAX : 0;
-  if (n >= FLOAT_SAFE_MAX) return FLOAT_SAFE_MAX;
-  if (n <= -FLOAT_SAFE_MAX) return -FLOAT_SAFE_MAX;
-  return n;
+export function toDec(val: unknown): Decimal {
+  if (val instanceof Decimal) {
+    return val.isNan() || !val.isFinite() ? D_ZERO : val;
+  }
+  if (typeof val === 'number') {
+    if (Number.isNaN(val) || !Number.isFinite(val)) return D_ZERO;
+    return new Decimal(val);
+  }
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (!trimmed) return D_ZERO;
+    try {
+      const parsed = new Decimal(trimmed);
+      return parsed.isNan() || !parsed.isFinite() ? D_ZERO : parsed;
+    } catch {
+      return D_ZERO;
+    }
+  }
+  if (val && typeof val === 'object') {
+    const maybe = val as { sign?: unknown; layer?: unknown; mag?: unknown };
+    if (
+      typeof maybe.sign === 'number' &&
+      typeof maybe.layer === 'number' &&
+      typeof maybe.mag === 'number'
+    ) {
+      const parsed = Decimal.fromComponents(maybe.sign, maybe.layer, maybe.mag);
+      return parsed.isNan() || !parsed.isFinite() ? D_ZERO : parsed;
+    }
+  }
+  return D_ZERO;
+}
+
+export function safeNum(n: DecimalSource): Decimal {
+  return toDec(n);
 }
 
 export const clampGoogol = safeNum;
 
-export function safePow(base: number, exp: number): number {
-  if (base <= 0) return exp === 0 ? 1 : 0;
-  if (exp === 0) return 1;
-  const logVal = exp * Math.log10(base);
-  if (Number.isNaN(logVal)) return 1;
-  if (logVal >= 305) return FLOAT_SAFE_MAX;
-  if (logVal <= -305) return 0;
-  return safeNum(Math.pow(base, exp));
+export function safePow(base: DecimalSource, exp: DecimalSource): Decimal {
+  const b = toDec(base);
+  const e = toDec(exp);
+  if (b.lte(0)) return e.eq(0) ? D_ONE : D_ZERO;
+  if (e.eq(0)) return D_ONE;
+  const res = b.pow(e);
+  return res.isNan() || !res.isFinite() ? D_ONE : res;
 }
 
-export function safeMul(a: number, b: number): number {
-  return safeNum(a * b);
+export function safeMul(a: DecimalSource, b: DecimalSource): Decimal {
+  return safeNum(toDec(a).mul(toDec(b)));
+}
+
+export function progressPercent(current: DecimalSource, target: DecimalSource): number {
+  const c = toDec(current);
+  const t = toDec(target);
+  if (t.lte(0) || c.gte(t)) return 100;
+  if (c.lte(0)) return 0;
+  const ratio = c.div(t).toNumber();
+  if (!Number.isFinite(ratio) || Number.isNaN(ratio)) return 0;
+  return Math.min(100, Math.max(0, ratio * 100));
 }
 
 /**
- * Enforces a smooth soft cap followed by an unbreakable hard cap.
+ * Enforces a smooth soft cap followed by an unbreakable hard cap using Decimal math.
  */
 export function applySoftAndHardCap(
-  rawValue: number,
-  softCap: number,
-  hardCap: number,
+  rawValue: DecimalSource,
+  softCap: DecimalSource,
+  hardCap: DecimalSource,
   softPower = 0.5
-): number {
-  const clean = safeNum(Math.max(0, rawValue));
-  if (clean <= softCap) return clean;
-  if (hardCap <= softCap) return Math.min(clean, hardCap);
+): Decimal {
+  const clean = Decimal.max(D_ZERO, toDec(rawValue));
+  const soft = toDec(softCap);
+  const hard = toDec(hardCap);
+  if (clean.lte(soft)) return clean;
+  if (hard.lte(soft)) return Decimal.min(clean, hard);
 
-  const headroom = hardCap - softCap;
-  const excessRatio = (clean - softCap) / headroom;
-  const diminished = 1 - 1 / (1 + Math.pow(excessRatio, softPower));
-  return Math.min(hardCap, softCap + headroom * diminished);
+  const headroom = hard.sub(soft);
+  const excessRatio = clean.sub(soft).div(headroom);
+  const powered = excessRatio.pow(softPower);
+  const diminished = powered.div(D_ONE.add(powered));
+  return Decimal.min(hard, soft.add(headroom.mul(diminished)));
 }
 
 /**
  * Shared 3-phase boost curve:
  * 1) Exponential surge up to `surgePeak`
- * 2) Diminishing returns from `surgePeak` to `capCeiling` (100T * 10^timeResets)
+ * 2) Diminishing returns from `surgePeak` to `capCeiling` (1e+50 * 10^timeResets, uncapped by 1e305!)
  * 3) Hard cap at `capCeiling` (extra currency beyond cap gives 0 additional boost)
  */
 export function computeCappedBoostCurve(
-  amount: number,
-  capCeiling: number,
+  amount: DecimalSource,
+  capCeiling: DecimalSource,
   exponent = 0.65,
   factor = 0.25,
-  maxMultSoft = 1e8,
-  maxMultHard = 1e14
-): { multiplier: number; phase: 'exponential' | 'diminishing' | 'capped'; capCeiling: number } {
-  const safeCap = safeNum(Math.max(100_000, capCeiling));
-  const surgePeak = Math.min(safeCap * 0.001, Math.max(100_000, Math.pow(safeCap, 0.38)));
+  maxMultSoft: DecimalSource = 1e8,
+  maxMultHard: DecimalSource = 1e14
+): { multiplier: Decimal; phase: 'exponential' | 'diminishing' | 'capped'; capCeiling: Decimal } {
+  const amt = toDec(amount);
+  const safeCap = Decimal.max(100_000, toDec(capCeiling));
+  const surgePeak = Decimal.min(safeCap.mul(0.001), Decimal.max(100_000, safeCap.pow(0.38)));
 
-  if (amount <= 0) {
-    return { multiplier: 1, phase: 'exponential', capCeiling: safeCap };
+  if (amt.lte(0)) {
+    return { multiplier: D_ONE, phase: 'exponential', capCeiling: safeCap };
   }
 
   const peakRawBonus = safeMul(factor, safePow(surgePeak, exponent));
 
-  if (amount <= surgePeak) {
-    const rawBonus = safeMul(factor, safePow(amount, exponent));
-    const capped = applySoftAndHardCap(1 + rawBonus, maxMultSoft, maxMultHard, 0.45);
+  if (amt.lte(surgePeak)) {
+    const rawBonus = safeMul(factor, safePow(amt, exponent));
+    const capped = applySoftAndHardCap(D_ONE.add(rawBonus), maxMultSoft, maxMultHard, 0.45);
     return { multiplier: capped, phase: 'exponential', capCeiling: safeCap };
   }
 
-  if (amount < safeCap) {
-    const logPeak = Math.log10(surgePeak);
-    const logCap = Math.log10(safeCap);
-    const t = Math.min(1, Math.max(0, (Math.log10(amount) - logPeak) / Math.max(1, logCap - logPeak)));
+  if (amt.lt(safeCap)) {
+    const logPeak = surgePeak.log10();
+    const logCap = safeCap.log10();
+    const denom = Decimal.max(D_ONE, logCap.sub(logPeak));
+    const tRaw = amt.log10().sub(logPeak).div(denom).toNumber();
+    const t = Math.min(1, Math.max(0, Number.isFinite(tRaw) ? tRaw : 0));
     const extraFraction = 1 - Math.pow(1 - t, 1.8);
-    const rawBonus = peakRawBonus * (1 + extraFraction * 1.5);
-    const capped = applySoftAndHardCap(1 + rawBonus, maxMultSoft, maxMultHard, 0.45);
+    const rawBonus = peakRawBonus.mul(1 + extraFraction * 1.5);
+    const capped = applySoftAndHardCap(D_ONE.add(rawBonus), maxMultSoft, maxMultHard, 0.45);
     return { multiplier: capped, phase: 'diminishing', capCeiling: safeCap };
   }
 
-  const maxRawBonus = peakRawBonus * 2.5;
-  const capped = applySoftAndHardCap(1 + maxRawBonus, maxMultSoft, maxMultHard, 0.45);
+  const maxRawBonus = peakRawBonus.mul(2.5);
+  const capped = applySoftAndHardCap(D_ONE.add(maxRawBonus), maxMultSoft, maxMultHard, 0.45);
   return { multiplier: capped, phase: 'capped', capCeiling: safeCap };
 }
 
-export function formatNum(n: number, notation: NotationType = 'standard', decimals = 2): string {
-  const safe = safeNum(n);
-  if (safe === 0) return '0';
+function formatExpInt(exp: number): string {
+  if (exp < 100_000) return String(exp);
+  return exp.toLocaleString('en-US');
+}
 
-  const abs = Math.abs(safe);
+export function formatNum(
+  n: DecimalSource,
+  notation: NotationType = 'standard',
+  decimals = 2
+): string {
+  const d = toDec(n);
+  if (d.eq(0)) return '0';
 
-  if (abs < 1000) {
-    if (Math.abs(Math.round(safe) - safe) < 0.001) return Math.round(safe).toString();
-    return abs < 10 ? safe.toFixed(decimals) : safe.toFixed(1);
+  const signStr = d.sign < 0 ? '-' : '';
+  const abs = d.abs();
+
+  if (abs.lt(1000)) {
+    const num = abs.toNumber();
+    if (Math.abs(Math.round(num) - num) < 0.001) return `${signStr}${Math.round(num)}`;
+    return `${signStr}${num < 10 ? num.toFixed(decimals) : num.toFixed(1)}`;
   }
 
-  if (notation === 'scientific') {
-    const exp = Math.floor(Math.log10(abs));
-    const mantissa = safe / Math.pow(10, exp);
-    return `${mantissa.toFixed(decimals)}e+${exp}`;
+  if (notation === 'standard' && abs.lt(GOOGOL_CEIL)) {
+    if (abs.gte(GOOGOL)) {
+      const scaled = abs.div(GOOGOL).toNumber();
+      return `${signStr}${scaled.toFixed(decimals)} Googol`;
+    }
+
+    const exp = Math.floor(abs.e);
+    const tier = Math.floor(exp / 3);
+    if (tier < SUFFIXES.length) {
+      let scaled = abs.div(Decimal.pow10(tier * 3)).toNumber();
+      if (scaled >= 999.995 && tier + 1 < SUFFIXES.length) {
+        scaled /= 1000;
+        return `${signStr}${scaled.toFixed(decimals)}${SUFFIXES[tier + 1]}`;
+      }
+      return `${signStr}${scaled.toFixed(decimals)}${SUFFIXES[tier]}`;
+    }
   }
 
-  if (abs >= GOOGOL && abs < 1e103) {
-    const scaled = safe / GOOGOL;
-    return `${scaled.toFixed(decimals)} Googol`;
+  // Scientific or >= 1e103 without any upper bound
+  if (abs.layer <= 1 && abs.e < 1e9) {
+    let exp = Math.floor(abs.e);
+    let mantissa = abs.m;
+    if (!Number.isFinite(mantissa) || mantissa <= 0) mantissa = 1;
+    let mStr = mantissa.toFixed(decimals);
+    if (Number(mStr) >= 10) {
+      exp += 1;
+      mStr = (1).toFixed(decimals);
+    }
+    return `${signStr}${mStr}e+${formatExpInt(exp)}`;
   }
 
-  const tier = Math.floor(Math.log10(abs) / 3);
-  if (tier < SUFFIXES.length) {
-    const scaled = safe / Math.pow(10, tier * 3);
-    return `${scaled.toFixed(decimals)}${SUFFIXES[tier]}`;
+  // Hyper-exponential scale (exponent >= 1e9 or tetrated layers)
+  if (abs.layer <= 4) {
+    return `${signStr}e${formatNum(abs.log10(), 'scientific', decimals)}`;
   }
 
-  // Unlimited numbers beyond 1e103 seamlessly format in scientific notation
-  const exp = Math.floor(Math.log10(abs));
-  const mantissa = safe / Math.pow(10, exp);
-  return `${mantissa.toFixed(decimals)}e+${exp}`;
+  return `${signStr}10^^${abs.layer}(${abs.mag.toFixed(2)})`;
 }
 
 export function getEffectiveScale(baseScale: number, scaleReduction: number): number {
@@ -170,40 +247,50 @@ export function getEffectiveScale(baseScale: number, scaleReduction: number): nu
 }
 
 export function getLevelCost(
-  baseCost: number,
+  baseCost: DecimalSource,
   effectiveScale: number,
   currentLevel: number,
   discountMult = 1
-): number {
+): Decimal {
   const scaled = safeMul(baseCost, safePow(effectiveScale, currentLevel));
-  const raw = safeMul(scaled, discountMult);
-  return safeNum(Math.max(1, Math.floor(raw)));
+  const raw = safeMul(scaled, discountMult).floor();
+  return Decimal.max(D_ONE, raw);
 }
 
 export function getRebirthLevelCost(
-  baseCost: number,
+  baseCost: DecimalSource,
   effectiveScale: number,
   rebirthLevel: number
-): number {
+): Decimal {
   const quadExp = (rebirthLevel * (rebirthLevel + 1)) / 2;
   const linearPart = safePow(effectiveScale, rebirthLevel);
   const expAcceleration = safePow(1.42, quadExp);
-  const raw = safeMul(baseCost, safeMul(linearPart, expAcceleration));
-  return safeNum(Math.max(1, Math.floor(raw)));
+  const raw = safeMul(baseCost, safeMul(linearPart, expAcceleration)).floor();
+  return Decimal.max(D_ONE, raw);
+}
+
+export interface MultiBuyResult {
+  count: number;
+  totalCost: Decimal;
+  canAfford: boolean;
+  nextSingleCost: Decimal;
 }
 
 export function calculateMultiBuyRebirth(
-  coins: number,
-  baseCost: number,
+  coins: DecimalSource,
+  baseCost: DecimalSource,
   effectiveScale: number,
   currentRebirthLevel: number,
   multiBuy: MultiBuyAmount,
   maxAllowed = 50,
   costMult = 1
-): { count: number; totalCost: number; canAfford: boolean; nextSingleCost: number } {
-  const nextSingleCost = safeNum(
-    Math.floor(getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel) * costMult)
+): MultiBuyResult {
+  const coinsDec = toDec(coins);
+  const nextSingleCost = Decimal.max(
+    D_ONE,
+    getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel).mul(costMult).floor()
   );
+
   if (maxAllowed <= 0) {
     return { count: 0, totalCost: nextSingleCost, canAfford: false, nextSingleCost };
   }
@@ -211,29 +298,37 @@ export function calculateMultiBuyRebirth(
     return {
       count: 1,
       totalCost: nextSingleCost,
-      canAfford: coins >= nextSingleCost && nextSingleCost < FLOAT_SAFE_MAX,
+      canAfford: coinsDec.gte(nextSingleCost),
       nextSingleCost
     };
   }
+  if (multiBuy === -1 && coinsDec.lt(nextSingleCost)) {
+    return { count: 1, totalCost: nextSingleCost, canAfford: false, nextSingleCost };
+  }
 
-  let totalCost = 0;
+  let totalCost = D_ZERO;
   let count = 0;
   const target = multiBuy === -1 ? maxAllowed : Math.min(multiBuy, maxAllowed);
 
   for (let i = 0; i < target; i++) {
-    const stepCost = safeNum(
-      Math.floor(getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel + i) * costMult)
-    );
-    if (stepCost >= FLOAT_SAFE_MAX) break;
+    const stepCost =
+      i === 0
+        ? nextSingleCost
+        : Decimal.max(
+            D_ONE,
+            getRebirthLevelCost(baseCost, effectiveScale, currentRebirthLevel + i).mul(costMult).floor()
+          );
+
     if (multiBuy === -1) {
-      if (coins >= totalCost + stepCost) {
-        totalCost = safeNum(totalCost + stepCost);
+      const nextSum = totalCost.add(stepCost);
+      if (coinsDec.gte(nextSum)) {
+        totalCost = nextSum;
         count++;
       } else {
         break;
       }
     } else {
-      totalCost = safeNum(totalCost + stepCost);
+      totalCost = totalCost.add(stepCost);
       count++;
     }
   }
@@ -245,21 +340,23 @@ export function calculateMultiBuyRebirth(
   return {
     count,
     totalCost,
-    canAfford: count > 0 && coins >= totalCost && totalCost < FLOAT_SAFE_MAX,
+    canAfford: count > 0 && coinsDec.gte(totalCost),
     nextSingleCost
   };
 }
 
 export function calculateMultiBuy(
-  currency: number,
-  baseCost: number,
+  currency: DecimalSource,
+  baseCost: DecimalSource,
   effectiveScale: number,
   currentLevel: number,
   multiBuy: MultiBuyAmount,
   maxAllowed = 1000,
   discountMult = 1
-): { count: number; totalCost: number; canAfford: boolean; nextSingleCost: number } {
-  const nextSingleCost = getLevelCost(baseCost, effectiveScale, currentLevel, discountMult);
+): MultiBuyResult {
+  const curDec = toDec(currency);
+  let rawScaled = safeMul(baseCost, safePow(effectiveScale, currentLevel));
+  const nextSingleCost = Decimal.max(D_ONE, rawScaled.mul(discountMult).floor());
 
   if (maxAllowed <= 0) {
     return { count: 0, totalCost: nextSingleCost, canAfford: false, nextSingleCost };
@@ -269,30 +366,36 @@ export function calculateMultiBuy(
     return {
       count: 1,
       totalCost: nextSingleCost,
-      canAfford: currency >= nextSingleCost && nextSingleCost < FLOAT_SAFE_MAX,
+      canAfford: curDec.gte(nextSingleCost),
       nextSingleCost
     };
   }
 
-  let totalCost = 0;
+  if (multiBuy === -1 && curDec.lt(nextSingleCost)) {
+    return { count: 1, totalCost: nextSingleCost, canAfford: false, nextSingleCost };
+  }
+
+  let totalCost = D_ZERO;
   let count = 0;
   const target = multiBuy === -1 ? Math.min(maxAllowed, 100) : Math.min(multiBuy, maxAllowed);
 
   for (let i = 0; i < target; i++) {
-    const stepCost = getLevelCost(baseCost, effectiveScale, currentLevel + i, discountMult);
-    if (stepCost >= FLOAT_SAFE_MAX) break;
+    const stepCost =
+      i === 0 ? nextSingleCost : Decimal.max(D_ONE, rawScaled.mul(discountMult).floor());
 
     if (multiBuy === -1) {
-      if (currency >= totalCost + stepCost) {
-        totalCost = safeNum(totalCost + stepCost);
+      const nextSum = totalCost.add(stepCost);
+      if (curDec.gte(nextSum)) {
+        totalCost = nextSum;
         count++;
       } else {
         break;
       }
     } else {
-      totalCost = safeNum(totalCost + stepCost);
+      totalCost = totalCost.add(stepCost);
       count++;
     }
+    rawScaled = rawScaled.mul(effectiveScale);
   }
 
   if (multiBuy === -1 && count === 0) {
@@ -302,7 +405,7 @@ export function calculateMultiBuy(
   return {
     count,
     totalCost,
-    canAfford: count > 0 && currency >= totalCost && totalCost < FLOAT_SAFE_MAX,
+    canAfford: count > 0 && curDec.gte(totalCost),
     nextSingleCost
   };
 }

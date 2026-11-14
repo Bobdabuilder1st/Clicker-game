@@ -1,43 +1,43 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { FloatingNumber, MultiBuyAmount, NotationType, ClickerEvolution } from '../types/game';
-import { formatNum } from '../utils/format';
+import { Decimal, formatNum } from '../utils/format';
 import { MultiBuyBar } from '../components/MultiBuyBar';
 
 interface ClickerSectionProps {
-  coinsPerClick: number;
-  coinsPerSecond: number;
+  coinsPerClick: Decimal;
+  coinsPerSecond: Decimal;
   autoClicksPerSecond: number;
-  rpPerSecond: number;
-  rebirthPoints: number;
+  rpPerSecond: Decimal;
+  rebirthPoints: Decimal;
   rpFormulaExponent: number;
   rpFormulaFactor: number;
-  rpCoinMultiplier: number;
+  rpCoinMultiplier: Decimal;
   rpCurvePhase: 'exponential' | 'diminishing' | 'capped';
-  ppCoinMultiplier: number;
-  tpCoinMultiplier: number;
-  essenceCoinMultiplier: number;
-  boostCapCeiling: number;
+  ppCoinMultiplier: Decimal;
+  tpCoinMultiplier: Decimal;
+  essenceCoinMultiplier: Decimal;
+  boostCapCeiling: Decimal;
   critChance: number;
   critMultiplier: number;
   clickerLevel: number;
   clickerEvolution: ClickerEvolution;
   nextClickerEvolution: ClickerEvolution | null;
-  clickerTotalPowerMult: number;
-  clickerGlobalCoinBoost: number;
+  clickerTotalPowerMult: Decimal;
+  clickerGlobalCoinBoost: Decimal;
   effectiveClickerScale: number;
   coinCoreMultiBuy: MultiBuyAmount;
   clickerBuyInfo: {
     count: number;
-    totalCost: number;
+    totalCost: Decimal;
     canAfford: boolean;
-    nextSingleCost: number;
+    nextSingleCost: Decimal;
   };
   notation: NotationType;
   adminFreeMode: boolean;
   codeClickerUnlocked: boolean;
   codeClickerEnabled: boolean;
   onToggleCodeClicker: () => void;
-  onManualClick: () => { amount: number; isCrit: boolean };
+  onManualClick: () => { amount: Decimal; isCrit: boolean };
   onLevelUpClicker: () => void;
   onCoinCoreMultiChange: (val: MultiBuyAmount) => void;
 }
@@ -78,9 +78,18 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
   const [floatingNumbers, setFloatingNumbers] = useState<FloatingNumber[]>([]);
   const [isPressed, setIsPressed] = useState(false);
   const floatIdRef = useRef(0);
+  const floatTimeoutsRef = useRef<Set<number>>(new Set());
   const orbRef = useRef<HTMLButtonElement>(null);
 
-  const spawnFloat = useCallback((x: number, y: number, amount: number, isCrit: boolean) => {
+  useEffect(() => {
+    const timeouts = floatTimeoutsRef.current;
+    return () => {
+      timeouts.forEach((tid) => window.clearTimeout(tid));
+      timeouts.clear();
+    };
+  }, []);
+
+  const spawnFloat = useCallback((x: number, y: number, amount: Decimal, isCrit: boolean) => {
     const id = ++floatIdRef.current;
     setFloatingNumbers((prev) => [
       ...prev.slice(-14),
@@ -92,9 +101,11 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         isCrit
       }
     ]);
-    window.setTimeout(() => {
+    const tid = window.setTimeout(() => {
+      floatTimeoutsRef.current.delete(tid);
       setFloatingNumbers((prev) => prev.filter((f) => f.id !== id));
     }, 800);
+    floatTimeoutsRef.current.add(tid);
   }, [notation]);
 
   const handleOrbClick = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -132,7 +143,10 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
     };
   }, [onManualClick, spawnFloat]);
 
-  const companionIndices = Array.from({ length: clickerEvolution.companionCount }, (_, i) => i);
+  const companionIndices = useMemo(
+    () => Array.from({ length: clickerEvolution.companionCount }, (_, i) => i),
+    [clickerEvolution.companionCount]
+  );
   const evoProgress = nextClickerEvolution
     ? Math.min(
         100,
@@ -227,9 +241,9 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2">
               <div className="text-[11px] font-medium text-slate-400">Passive CPS</div>
               <div className="font-mono text-base font-bold text-emerald-300 tabular-nums">
-                +{formatNum(coinsPerSecond + autoClicksPerSecond * coinsPerClick, notation)}/s
+                +{formatNum(coinsPerSecond.add(coinsPerClick.mul(autoClicksPerSecond)), notation)}/s
               </div>
-              {rpPerSecond > 0 && (
+              {rpPerSecond.gt(0) && (
                 <div className="text-[10px] font-mono text-purple-300 tabular-nums">
                   +{formatNum(rpPerSecond, notation)} RP/s
                 </div>
@@ -334,7 +348,7 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         )}
       </div>
 
-      {/* Live Cascading Currency -> Coins Boost Card (100T Cap * 10^timeResets) */}
+      {/* Live Cascading Currency -> Coins Boost Card (1e+50 Cap * 10^timeResets) */}
       <div className="rounded-2xl border border-purple-500/30 bg-purple-950/20 p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-purple-300">
@@ -347,15 +361,15 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         <div className="mt-2 rounded-lg bg-slate-950/80 px-3 py-2 font-mono text-xs text-slate-300 tabular-nums">
           Mult = 1 + (RP<sup>{rpFormulaExponent}</sup> × {rpFormulaFactor})
         </div>
-        {(ppCoinMultiplier > 1 || tpCoinMultiplier > 1 || essenceCoinMultiplier > 1) && (
+        {(ppCoinMultiplier.gt(1) || tpCoinMultiplier.gt(1) || essenceCoinMultiplier.gt(1)) && (
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums">
-            {ppCoinMultiplier > 1 && (
+            {ppCoinMultiplier.gt(1) && (
               <span className="text-cyan-300">Gems→Coins: ×{formatNum(ppCoinMultiplier, notation)}</span>
             )}
-            {tpCoinMultiplier > 1 && (
+            {tpCoinMultiplier.gt(1) && (
               <span className="text-emerald-300">Leaves→Coins: ×{formatNum(tpCoinMultiplier, notation)}</span>
             )}
-            {essenceCoinMultiplier > 1 && (
+            {essenceCoinMultiplier.gt(1) && (
               <span className="text-rose-300">
                 Essence→Coins: ×{formatNum(essenceCoinMultiplier, notation)}
               </span>
