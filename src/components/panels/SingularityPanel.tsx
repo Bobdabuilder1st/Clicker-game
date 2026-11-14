@@ -43,6 +43,8 @@ interface SingularityPanelProps {
   hasAutoBuildings: boolean;
   hasAutoUpgrades: boolean;
   hasAutoRebirth: boolean;
+  hasAutoPrestige: boolean;
+  hasAutoSingularity: boolean;
   hasAutoClicker: boolean;
   automation: AutomationState;
   multiBuy: MultiBuyAmount;
@@ -56,7 +58,14 @@ interface SingularityPanelProps {
   onBuySingularityUpgrade: (id: string) => void;
   onBuyEssenceReactor: () => void;
   onToggleAuto: (
-    key: 'autoBuyBuildings' | 'autoBuyUpgrades' | 'autoLevelClicker' | 'autoBuyRebirthUpgrades'
+    key:
+      | 'autoBuyBuildings'
+      | 'autoBuyUpgrades'
+      | 'autoLevelClicker'
+      | 'autoBuyRebirthUpgrades'
+      | 'autoBuyPrestigeUpgrades'
+      | 'autoBuySingularityUpgrades'
+      | 'autoBuyMax'
   ) => void;
 }
 
@@ -83,6 +92,8 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
   hasAutoBuildings,
   hasAutoUpgrades,
   hasAutoRebirth,
+  hasAutoPrestige,
+  hasAutoSingularity,
   hasAutoClicker,
   automation,
   multiBuy,
@@ -103,7 +114,13 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
     : Math.min(100, (treePoints / Math.max(1, singularityCost)) * 100);
 
   const activeUpgrades = singularityUpgrades.filter((u) => !isTieredItemMaxed(u));
-  const anyAutoUnlocked = hasAutoBuildings || hasAutoUpgrades || hasAutoRebirth || hasAutoClicker;
+  const anyAutoUnlocked =
+    hasAutoBuildings ||
+    hasAutoUpgrades ||
+    hasAutoRebirth ||
+    hasAutoPrestige ||
+    hasAutoSingularity ||
+    hasAutoClicker;
   const reactorPerUnitRate = 10 * safePow(2, Math.floor(essenceReactorLevel / 5));
 
   return (
@@ -121,10 +138,10 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
             <p className="mt-1 max-w-xl text-xs text-slate-300">
               Resets <strong className="text-rose-200">Coins, Rebirth, Prestige, and Skill Tree</strong>.
               Each Singularity gives <strong className="text-rose-200">+1 more Essence</strong> than
-              the last (Next: +{projectedEssenceGain} 🕳️) and costs 10x more Tree Points!
+              the last (Next: +{projectedEssenceGain} 🕳️) and costs 10x more Leaves!
               {tpPerSecond > 0 && (
                 <span className="ml-1.5 text-emerald-300">
-                  · +{formatNum(tpPerSecond, notation)} TP/s
+                  · +{formatNum(tpPerSecond, notation)} Leaves/s
                 </span>
               )}
               {essencePerSecond > 0 && (
@@ -141,11 +158,11 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">
-              Singularity Cost (Starts at 1B TP · 10x each time · 1 at a time)
+              Singularity Cost (Starts at 1B Leaves · 10x each time · 1 at a time)
             </span>
             <span className="font-mono font-semibold text-rose-200 tabular-nums">
               {formatNum(treePoints, notation)} /{' '}
-              {adminFreeMode ? 'FREE' : `${formatNum(singularityCost, notation)} 🌳`}
+              {adminFreeMode ? 'FREE' : `${formatNum(singularityCost, notation)} 🍃`}
             </span>
           </div>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-900">
@@ -172,7 +189,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
           >
             {canSingularity
               ? `Enter Singularity (+${projectedEssenceGain} 🕳️)`
-              : `Need ${formatNum(singularityCost, notation)} 🌳`}
+              : `Need ${formatNum(singularityCost, notation)} 🍃`}
           </button>
         </div>
       </div>
@@ -254,7 +271,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
               </span>
             </div>
             <p className="mt-1 text-xs text-slate-400">
-              Permanently multiplies Coins, RP, Prestige Points, and Tree Points (max Level 100).
+              Permanently multiplies Coins, RP, Gems, and Leaves (max Level 100).
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <span className="text-slate-300">
@@ -270,13 +287,13 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                 </strong>
               </span>
               <span className="text-slate-300">
-                PP:{' '}
+                Gems:{' '}
                 <strong className="font-mono text-cyan-300 tabular-nums">
                   ×{formatNum(corePpMult, notation)}
                 </strong>
               </span>
               <span className="text-slate-300">
-                TP:{' '}
+                Leaves:{' '}
                 <strong className="font-mono text-emerald-300 tabular-nums">
                   ×{formatNum(coreTpMult, notation)}
                 </strong>
@@ -323,6 +340,18 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
             <span className="text-xs text-slate-400">Per-building toggles in Buildings tab</span>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onToggleAuto('autoBuyMax')}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                automation.autoBuyMax
+                  ? 'border-amber-400 bg-amber-500/25 text-amber-200'
+                  : 'border-slate-700 bg-slate-900 text-slate-300'
+              }`}
+              title="Toggle whether auto-buyers buy MAX or +1 per tick"
+            >
+              Auto-Buy Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
+            </button>
             {hasAutoBuildings && (
               <button
                 type="button"
@@ -359,7 +388,33 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                     : 'border-slate-700 bg-slate-900 text-slate-400'
                 }`}
               >
-                Auto-Buy Rebirth Upgrades: {automation.autoBuyRebirthUpgrades ? 'ON' : 'OFF'}
+                Auto-Buy Rebirth: {automation.autoBuyRebirthUpgrades ? 'ON' : 'OFF'}
+              </button>
+            )}
+            {hasAutoPrestige && (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyPrestigeUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuyPrestigeUpgrades
+                    ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Auto-Buy Prestige: {automation.autoBuyPrestigeUpgrades ? 'ON' : 'OFF'}
+              </button>
+            )}
+            {hasAutoSingularity && (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuySingularityUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuySingularityUpgrades
+                    ? 'border-emerald-400 bg-emerald-500/25 text-emerald-200'
+                    : 'border-slate-700 bg-slate-900 text-slate-400'
+                }`}
+              >
+                Auto-Buy Singularity: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
               </button>
             )}
             {hasAutoClicker && (
@@ -433,7 +488,7 @@ const SingularityPanel: React.FC<SingularityPanelProps> = ({
                           {isTreeGen ? 'Live Output:' : 'Total:'}{' '}
                           <strong className="font-mono text-rose-200 tabular-nums">
                             {isTreeGen
-                              ? `+${formatNum(tpPerSecond, notation)} TP/s`
+                              ? `+${formatNum(tpPerSecond, notation)} Leaves/s`
                               : `+${formatNum(upg.totalBonus, notation)} ${upg.bonusUnit}`}
                           </strong>
                         </span>

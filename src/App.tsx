@@ -15,6 +15,7 @@ const PrestigePanel = lazy(() => import('./components/panels/PrestigePanel'));
 const SkillTreePanel = lazy(() => import('./components/panels/SkillTreePanel'));
 const SingularityPanel = lazy(() => import('./components/panels/SingularityPanel'));
 const TimeResetPanel = lazy(() => import('./components/panels/TimeResetPanel'));
+const IdealPanel = lazy(() => import('./components/panels/IdealPanel'));
 
 type ConfirmModalType = 'rebirth' | 'prestige' | 'treeReset' | 'singularity' | 'hardReset' | null;
 
@@ -60,6 +61,9 @@ export function App() {
     triggerSingularity,
     triggerTimeReset,
     buyTimeFlipUpgrade,
+    buyTimeTokenBoostUpgrade,
+    buyTimeAutoSingularity,
+    unlockIdealTab,
     unlockAdminWithCode,
     toggleAdminFreeMode,
     adminGrantResources,
@@ -80,7 +84,12 @@ export function App() {
     { id: 'prestige', label: 'Prestige', ready: stats.prestigeBuyInfo.canAfford },
     { id: 'skillTree', label: 'Skill Tree', ready: stats.treeBuyInfo.canAfford },
     { id: 'singularity', label: 'Singularity', ready: stats.canSingularity },
-    { id: 'timeReset', label: 'Time Reset', ready: stats.canTimeReset }
+    { id: 'timeReset', label: 'Time Reset', ready: stats.canTimeReset },
+    {
+      id: 'ideal',
+      label: 'Ideal',
+      ready: !state.idealTabUnlocked && stats.canUnlockIdealTab
+    }
   ];
 
   const handleConfirmAction = () => {
@@ -154,7 +163,7 @@ export function App() {
               {(state.prestigePoints > 0 || state.lifetimePrestigePoints > 0 || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
-                    Prestige Pts
+                    Gems
                   </div>
                   <div className="font-mono text-sm font-bold text-cyan-200 tabular-nums leading-tight">
                     {formatNum(state.prestigePoints, state.notation)} 💎
@@ -165,10 +174,10 @@ export function App() {
               {(state.treePoints > 0 || state.lifetimeTreePoints > 0 || state.adminUnlocked) && (
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-emerald-300">
-                    Tree Pts
+                    Leaves
                   </div>
                   <div className="font-mono text-sm font-bold text-emerald-200 tabular-nums leading-tight">
-                    {formatNum(state.treePoints, state.notation)} 🌳
+                    {formatNum(state.treePoints, state.notation)} 🍃
                   </div>
                 </div>
               )}
@@ -312,17 +321,19 @@ export function App() {
                   onClick={() => setActiveTab(tab.id)}
                   className={`relative flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                     isActive
-                      ? tab.id === 'timeReset'
-                        ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-md'
-                        : tab.id === 'singularity'
-                          ? 'bg-gradient-to-r from-rose-500 to-fuchsia-500 text-white shadow-md'
-                          : tab.id === 'skillTree'
-                            ? 'bg-emerald-400 text-slate-950 shadow-md'
-                            : tab.id === 'prestige'
-                              ? 'bg-cyan-400 text-slate-950 shadow-md'
-                              : tab.id === 'rebirth'
-                                ? 'bg-purple-500 text-white shadow-md'
-                                : 'bg-amber-400 text-slate-950 shadow-md'
+                      ? tab.id === 'ideal'
+                        ? 'bg-gradient-to-r from-rose-500 via-amber-400 to-violet-500 text-slate-950 shadow-md'
+                        : tab.id === 'timeReset'
+                          ? 'bg-gradient-to-r from-amber-400 to-orange-500 text-slate-950 shadow-md'
+                          : tab.id === 'singularity'
+                            ? 'bg-gradient-to-r from-rose-500 to-fuchsia-500 text-white shadow-md'
+                            : tab.id === 'skillTree'
+                              ? 'bg-emerald-400 text-slate-950 shadow-md'
+                              : tab.id === 'prestige'
+                                ? 'bg-cyan-400 text-slate-950 shadow-md'
+                                : tab.id === 'rebirth'
+                                  ? 'bg-purple-500 text-white shadow-md'
+                                  : 'bg-amber-400 text-slate-950 shadow-md'
                       : 'text-slate-300 hover:bg-slate-800 hover:text-white'
                   }`}
                 >
@@ -445,10 +456,13 @@ export function App() {
                 globalScaleReduction={stats.globalScaleReduction}
                 hardCostMult={stats.hardCostMult}
                 notation={state.notation}
+                hasAutoPrestige={stats.hasAutoPrestige}
                 adminFreeMode={state.adminFreeMode}
+                automation={state.automation}
                 onMultiBuyChange={(val) => setSectionMultiBuy('prestige', val)}
                 onRequestPrestige={() => setConfirmModal('prestige')}
                 onBuyPrestigeUpgrade={buyPrestigeUpgrade}
+                onToggleAuto={toggleAutomation}
               />
             )}
 
@@ -504,6 +518,8 @@ export function App() {
                 hasAutoBuildings={stats.hasAutoBuildings}
                 hasAutoUpgrades={stats.hasAutoUpgrades}
                 hasAutoRebirth={stats.hasAutoRebirth}
+                hasAutoPrestige={stats.hasAutoPrestige}
+                hasAutoSingularity={stats.hasAutoSingularity}
                 hasAutoClicker={stats.hasAutoClicker}
                 automation={state.automation}
                 multiBuy={state.multiBuyBySection.singularity}
@@ -534,12 +550,43 @@ export function App() {
                 timeFlipChanceLevel={state.timeFlipChanceLevel}
                 timeFlipWinChance={stats.timeFlipWinChance}
                 timeFlipBuyInfo={stats.timeFlipBuyInfo}
+                timeTokenBoostLevel={state.timeTokenBoostLevel}
+                timeTokenBoostMult={stats.timeTokenBoostMult}
+                timeTokenBoostBuyInfo={stats.timeTokenBoostBuyInfo}
+                timeAutoSingularityUnlocked={state.timeAutoSingularityUnlocked}
+                timeAutoSingularityCost={stats.timeAutoSingularityCost}
+                canBuyTimeAutoSingularity={stats.canBuyTimeAutoSingularity}
+                hasAutoSingularity={stats.hasAutoSingularity}
+                idealTabUnlocked={state.idealTabUnlocked}
+                idealTabCost={stats.idealTabCost}
+                canUnlockIdealTab={stats.canUnlockIdealTab}
+                automation={state.automation}
                 multiBuy={state.multiBuyBySection.timeReset}
                 notation={state.notation}
                 adminFreeMode={state.adminFreeMode}
                 onMultiBuyChange={(val) => setSectionMultiBuy('timeReset', val)}
                 onTimeReset={triggerTimeReset}
                 onBuyTimeFlipUpgrade={buyTimeFlipUpgrade}
+                onBuyTimeTokenBoost={buyTimeTokenBoostUpgrade}
+                onBuyTimeAutoSingularity={buyTimeAutoSingularity}
+                onUnlockIdealTab={unlockIdealTab}
+                onOpenIdealTab={() => setActiveTab('ideal')}
+                onToggleAuto={toggleAutomation}
+              />
+            )}
+
+            {activeTab === 'ideal' && (
+              <IdealPanel
+                idealTabUnlocked={state.idealTabUnlocked}
+                idealTabCost={stats.idealTabCost}
+                canUnlockIdealTab={stats.canUnlockIdealTab}
+                timeTokens={state.timeTokens}
+                ideal={state.ideal}
+                idealXpPerSecond={stats.idealXpPerSecond}
+                notation={state.notation}
+                adminUnlocked={state.adminUnlocked}
+                adminFreeMode={state.adminFreeMode}
+                onUnlockIdealTab={unlockIdealTab}
               />
             )}
           </Suspense>
@@ -597,7 +644,7 @@ export function App() {
               {confirmModal === 'rebirth' && `Confirm Rebirth (+${stats.rebirthBuyInfo.count})`}
               {confirmModal === 'prestige' && `Confirm Prestige (+${stats.prestigeBuyInfo.count})`}
               {confirmModal === 'treeReset' &&
-                `Harvest Tree Points (+${stats.treeBuyInfo.count})`}
+                `Harvest Leaves (+${stats.treeBuyInfo.count})`}
               {confirmModal === 'singularity' && 'Enter The Singularity'}
               {confirmModal === 'hardReset' && 'Hard Reset Save Data?'}
             </h3>
@@ -606,11 +653,11 @@ export function App() {
               {confirmModal === 'rebirth' &&
                 `Resets Coins, Buildings, Upgrades, and Coin Core Level in exchange for +${formatNum(stats.projectedRebirthRpGain, state.notation)} Rebirth Points.`}
               {confirmModal === 'prestige' &&
-                `Costs ${formatNum(stats.prestigeBuyInfo.totalCost, state.notation)} Rebirth Points and resets Coins, Buildings, Upgrades, Coin Core, and Rebirth in exchange for +${formatNum(stats.projectedPrestigePointsGain, state.notation)} Prestige Points.`}
+                `Costs ${formatNum(stats.prestigeBuyInfo.totalCost, state.notation)} Rebirth Points and resets Coins, Buildings, Upgrades, Coin Core, and Rebirth in exchange for +${formatNum(stats.projectedPrestigePointsGain, state.notation)} Gems.`}
               {confirmModal === 'treeReset' &&
-                `Costs ${formatNum(stats.treeBuyInfo.totalCost, state.notation)} Prestige Points and resets Prestige, Rebirth, and Coins in exchange for +${formatNum(stats.projectedTreePointsGain, state.notation)} Tree Points.`}
+                `Costs ${formatNum(stats.treeBuyInfo.totalCost, state.notation)} Gems and resets Prestige, Rebirth, and Coins in exchange for +${formatNum(stats.projectedTreePointsGain, state.notation)} Leaves.`}
               {confirmModal === 'singularity' &&
-                `Costs ${formatNum(stats.singularityCost, state.notation)} Tree Points (increases 10x after) and resets Coins, Rebirth, Prestige, and Skill Tree in exchange for +${formatNum(stats.projectedEssenceGain, state.notation)} Singularity Essence!`}
+                `Costs ${formatNum(stats.singularityCost, state.notation)} Leaves (increases 10x after) and resets Coins, Rebirth, Prestige, and Skill Tree in exchange for +${formatNum(stats.projectedEssenceGain, state.notation)} Singularity Essence!`}
               {confirmModal === 'hardReset' &&
                 'This permanently erases your active run across all layers (manual Save States remain safe). This cannot be undone.'}
             </p>

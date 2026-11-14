@@ -36,7 +36,7 @@ interface UpgradesPanelProps {
   automation: AutomationState;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onBuyUpgrade: (id: string) => void;
-  onToggleAuto: (key: 'autoBuyUpgrades') => void;
+  onToggleAuto: (key: 'autoBuyUpgrades' | 'autoBuyMax') => void;
 }
 
 type FilterCat = 'all' | 'click' | 'building' | 'global' | 'synergy';
@@ -148,17 +148,31 @@ export const UpgradesPanel: React.FC<UpgradesPanelProps> = React.memo(({
 
         <div className="flex items-center gap-2">
           {hasAutoUpgrades && (
-            <button
-              type="button"
-              onClick={() => onToggleAuto('autoBuyUpgrades')}
-              className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-                automation.autoBuyUpgrades
-                  ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
-                  : 'border-slate-700 bg-slate-800 text-slate-400'
-              }`}
-            >
-              Auto-Buy: {automation.autoBuyUpgrades ? 'ON' : 'OFF'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuyUpgrades
+                    ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-400'
+                }`}
+              >
+                Auto-Buy: {automation.autoBuyUpgrades ? 'ON' : 'OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyMax')}
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuyMax
+                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}
+                title="Switch all auto-buyers between Max Buy and +1"
+              >
+                Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
+              </button>
+            </>
           )}
           <MultiBuyBar value={multiBuy} onChange={onMultiBuyChange} compact />
         </div>

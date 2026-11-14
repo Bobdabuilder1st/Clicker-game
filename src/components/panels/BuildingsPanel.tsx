@@ -19,7 +19,7 @@ interface BuildingsPanelProps {
   automation: AutomationState;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onBuyBuilding: (id: string) => void;
-  onToggleAuto: (key: 'autoBuyBuildings') => void;
+  onToggleAuto: (key: 'autoBuyBuildings' | 'autoBuyMax') => void;
   onToggleBuildingAuto: (buildingId: string) => void;
   onSetAllBuildingsAuto: (enabled: boolean) => void;
 }
@@ -86,6 +86,18 @@ export const BuildingsPanel: React.FC<BuildingsPanelProps> = React.memo(({
                 }`}
               >
                 Auto-Buy: {automation.autoBuyBuildings ? 'ON' : 'OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyMax')}
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuyMax
+                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}
+                title="Switch all auto-buyers between Max Buy and +1"
+              >
+                Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
               </button>
               <button
                 type="button"

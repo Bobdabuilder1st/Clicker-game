@@ -91,7 +91,7 @@ export const CodesModal: React.FC<CodesModalProps> = ({
             </span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-slate-300">Code Auto-Clicker (+5/s)</span>
+            <span className="text-slate-300">Code Auto-Clicker (+100/s)</span>
             <span className={codeClickerUnlocked ? 'font-bold text-emerald-300' : 'text-slate-500'}>
               {codeClickerUnlocked ? 'UNLOCKED' : 'Locked'}
             </span>

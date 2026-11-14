@@ -1,5 +1,5 @@
 import React from 'react';
-import { MultiBuyAmount, NotationType, TieredPerk } from '../../types/game';
+import { AutomationState, MultiBuyAmount, NotationType, TieredPerk } from '../../types/game';
 import { formatNum } from '../../utils/format';
 import { isTieredItemMaxed, previewTieredPurchase } from '../../hooks/useGameEngine';
 import { MultiBuyBar } from '../MultiBuyBar';
@@ -29,10 +29,13 @@ interface PrestigePanelProps {
   globalScaleReduction: number;
   hardCostMult: number;
   notation: NotationType;
+  hasAutoPrestige: boolean;
   adminFreeMode: boolean;
+  automation: AutomationState;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onRequestPrestige: () => void;
   onBuyPrestigeUpgrade: (id: string) => void;
+  onToggleAuto: (key: 'autoBuyPrestigeUpgrades' | 'autoBuyMax') => void;
 }
 
 const PrestigePanel: React.FC<PrestigePanelProps> = ({
@@ -55,10 +58,13 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
   globalScaleReduction,
   hardCostMult,
   notation,
+  hasAutoPrestige,
   adminFreeMode,
+  automation,
   onMultiBuyChange,
   onRequestPrestige,
-  onBuyPrestigeUpgrade
+  onBuyPrestigeUpgrade,
+  onToggleAuto
 }) => {
   const activePrestigeUpgrades = prestigeUpgrades.filter((u) => !isTieredItemMaxed(u));
   const maxedPrestigeCount = prestigeUpgrades.length - activePrestigeUpgrades.length;
@@ -76,14 +82,14 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               Cosmic Prestige · Tier {prestigeLevel}
             </div>
             <h2 className="mt-0.5 text-xl font-extrabold text-white">
-              {formatNum(prestigePoints, notation)} Prestige Points 💎
+              {formatNum(prestigePoints, notation)} Gems 💎
             </h2>
             <p className="mt-1 text-xs text-slate-300">
-              Lifetime PP:{' '}
+              Lifetime Gems:{' '}
               <strong className="font-mono text-cyan-200 tabular-nums">
                 {formatNum(lifetimePrestigePoints, notation)}
               </strong>{' '}
-              · 1B PP = 1 Tree Point in Skill Tree.
+              · 1B Gems = 1 Leaf in Skill Tree.
               {rpPerSecond > 0 && (
                 <span className="ml-1.5 text-emerald-300">
                   · Conduit: +{formatNum(rpPerSecond, notation)} RP/s
@@ -91,19 +97,19 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               )}
               {ppPerSecond > 0 && (
                 <span className="ml-1.5 text-cyan-300">
-                  · +{formatNum(ppPerSecond, notation)} PP/s
+                  · +{formatNum(ppPerSecond, notation)} Gems/s
                 </span>
               )}
             </p>
             <p className="mt-0.5 text-xs text-emerald-300/90">
-              Tree Points ({formatNum(treePoints, notation)} TP) → PP Gain:{' '}
+              Leaves ({formatNum(treePoints, notation)} 🍃) → Gem Gain:{' '}
               <strong className="font-mono tabular-nums">
                 ×{formatNum(tpToPpMultiplier, notation)}
               </strong>{' '}
               ({tpToPpPhase} · Cap {formatNum(boostCapCeiling, notation)})
               {essenceToPpMultiplier > 1 && (
                 <span className="ml-1.5 text-rose-300">
-                  · Essence → PP: ×{formatNum(essenceToPpMultiplier, notation)}
+                  · Essence → Gems: ×{formatNum(essenceToPpMultiplier, notation)}
                 </span>
               )}
             </p>
@@ -132,7 +138,7 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-slate-400">
-            Resets Coins, Buildings, Upgrades, Coin Core, and Rebirth. Prestige Points also boost RP!
+            Resets Coins, Buildings, Upgrades, Coin Core, and Rebirth. Gems also boost RP!
           </div>
 
           <button
@@ -154,7 +160,7 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
 
       {/* Prestige Upgrades (Max Tier 30, 10x surge in upper tiers) */}
       <div>
-        <div className="mb-2.5 flex items-center justify-between px-1">
+        <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 px-1">
           <div>
             <h3 className="text-sm font-bold text-white">
               Prestige Upgrades (Max Tier 30)
@@ -168,6 +174,33 @@ const PrestigePanel: React.FC<PrestigePanelProps> = ({
               Upper tiers scale exponentially by 10x per tier. Maxed Tier 30 upgrades disappear.
             </p>
           </div>
+
+          {hasAutoPrestige && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyPrestigeUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuyPrestigeUpgrades
+                    ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-400'
+                }`}
+              >
+                Auto-Buy Prestige: {automation.autoBuyPrestigeUpgrades ? 'ON' : 'OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyMax')}
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuyMax
+                    ? 'border-amber-400/60 bg-amber-500/20 text-amber-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}
+              >
+                Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
+              </button>
+            </div>
+          )}
         </div>
 
         {activePrestigeUpgrades.length === 0 ? (

@@ -40,8 +40,8 @@ export const AchievementsModal: React.FC<AchievementsModalProps> = ({
     {
       id: 'firstSkillTree',
       title: 'First Skill Tree',
-      description: 'Reach 1,000,000,000 PP and harvest your first Tree Point.',
-      icon: '🌳',
+      description: 'Reach 1,000,000,000 Gems and harvest your first Leaf.',
+      icon: '🍃',
       unlocked: achievements.firstSkillTree,
       rewardText: 'Marks awakening of the World Skill Tree'
     }
@@ -134,7 +134,7 @@ export const FirstRebirthPopup: React.FC<FirstRebirthPopupProps> = ({
         <h3 className="mt-1 text-xl font-extrabold text-white">First Rebirth</h3>
         <p className="mt-2 text-xs leading-relaxed text-slate-300">
           Congratulations on your first Rebirth! You have unlocked a special code that grants a free{' '}
-          <strong className="text-amber-300">Auto-Clicker (+5 clicks/sec)</strong>:
+          <strong className="text-amber-300">Auto-Clicker (+100 clicks/sec)</strong>:
         </p>
 
         <div className="mt-4 rounded-2xl border border-amber-400/50 bg-slate-950/90 px-4 py-3">

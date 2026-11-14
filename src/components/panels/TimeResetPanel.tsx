@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { MultiBuyAmount, NotationType } from '../../types/game';
+import { AutomationState, MultiBuyAmount, NotationType } from '../../types/game';
 import { formatNum } from '../../utils/format';
-import { TIME_FLIP_MAX_LEVEL } from '../../utils/gameData';
+import { TIME_FLIP_MAX_LEVEL, TIME_TOKEN_BOOST_MAX_LEVEL } from '../../utils/gameData';
 import { MultiBuyBar } from '../MultiBuyBar';
 
 interface TimeResetPanelProps {
@@ -22,12 +22,33 @@ interface TimeResetPanelProps {
     canAfford: boolean;
     nextSingleCost: number;
   };
+  timeTokenBoostLevel: number;
+  timeTokenBoostMult: number;
+  timeTokenBoostBuyInfo: {
+    count: number;
+    totalCost: number;
+    canAfford: boolean;
+    nextSingleCost: number;
+  };
+  timeAutoSingularityUnlocked: boolean;
+  timeAutoSingularityCost: number;
+  canBuyTimeAutoSingularity: boolean;
+  hasAutoSingularity: boolean;
+  idealTabUnlocked: boolean;
+  idealTabCost: number;
+  canUnlockIdealTab: boolean;
+  automation: AutomationState;
   multiBuy: MultiBuyAmount;
   notation: NotationType;
   adminFreeMode: boolean;
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onTimeReset: (gambleFlip: boolean) => { won: boolean; awarded: number };
   onBuyTimeFlipUpgrade: () => void;
+  onBuyTimeTokenBoost: () => void;
+  onBuyTimeAutoSingularity: () => void;
+  onUnlockIdealTab: () => void;
+  onOpenIdealTab: () => void;
+  onToggleAuto: (key: 'autoBuySingularityUpgrades' | 'autoBuyMax') => void;
 }
 
 const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
@@ -43,12 +64,28 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
   timeFlipChanceLevel,
   timeFlipWinChance,
   timeFlipBuyInfo,
+  timeTokenBoostLevel,
+  timeTokenBoostMult,
+  timeTokenBoostBuyInfo,
+  timeAutoSingularityUnlocked,
+  timeAutoSingularityCost,
+  canBuyTimeAutoSingularity,
+  hasAutoSingularity,
+  idealTabUnlocked,
+  idealTabCost,
+  canUnlockIdealTab,
+  automation,
   multiBuy,
   notation,
   adminFreeMode,
   onMultiBuyChange,
   onTimeReset,
-  onBuyTimeFlipUpgrade
+  onBuyTimeFlipUpgrade,
+  onBuyTimeTokenBoost,
+  onBuyTimeAutoSingularity,
+  onUnlockIdealTab,
+  onOpenIdealTab,
+  onToggleAuto
 }) => {
   const [flipBanner, setFlipBanner] = useState<{ won: boolean; awarded: number; gambled: boolean } | null>(
     null
@@ -58,6 +95,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
     ? 100
     : Math.min(100, (singularityEssence / Math.max(1, timeResetRequiredEssence)) * 100);
   const coinOddsMaxed = timeFlipChanceLevel >= TIME_FLIP_MAX_LEVEL;
+  const tokenBoostMaxed = timeTokenBoostLevel >= TIME_TOKEN_BOOST_MAX_LEVEL;
 
   const handleReset = (gambleFlip: boolean) => {
     const result = onTimeReset(gambleFlip);
@@ -83,7 +121,7 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
               <strong className="font-mono text-amber-300 tabular-nums">
                 ×{formatNum(timeTokenMult, notation)}
               </strong>
-              ). Every Time Reset also increases RP, Prestige, Tree, and Essence boost caps by{' '}
+              ). Every Time Reset also increases RP, Gem, Leaf, and Essence boost caps by{' '}
               <strong className="text-cyan-300">10x</strong> (current cap:{' '}
               <strong className="font-mono text-cyan-200 tabular-nums">
                 {formatNum(boostCapCeiling, notation)}
@@ -102,7 +140,8 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">
-              Time Reset Requirement ({formatNum(timeResetRequiredEssence || 1_000_000, notation)} Singularity Essence)
+              Time Reset Requirement ({formatNum(timeResetRequiredEssence || 1_000_000, notation)}{' '}
+              Singularity Essence)
             </span>
             <span className="font-mono font-semibold text-amber-200 tabular-nums">
               {formatNum(singularityEssence, notation)} /{' '}
@@ -175,59 +214,237 @@ const TimeResetPanel: React.FC<TimeResetPanelProps> = ({
         </div>
       </div>
 
-      {/* Time Token Upgrades */}
+      {/* Time Vault Upgrades */}
       <div className="rounded-3xl border border-slate-800 bg-slate-900/85 p-5">
-        <div className="mb-3">
-          <h3 className="text-sm font-bold text-white">Time Vault Upgrades</h3>
-          <p className="text-xs text-slate-400">
-            Starts at 10 Time Tokens and increases 10x per purchase.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-slate-950/70 p-4">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-950/40 text-2xl">
-              🎲
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-bold text-white">Coin Odds</span>
-                <span className="font-mono text-xs text-amber-300 tabular-nums">
-                  Lv.{timeFlipChanceLevel}/{TIME_FLIP_MAX_LEVEL}
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-slate-400">
-                Increases Time Reset Coin Flip win odds by +5% per level (50% → 80% max).
-              </p>
-              <div className="mt-1 text-[11px] font-mono text-amber-200 tabular-nums">
-                Current Odds: {Math.round(timeFlipWinChance * 100)}% · Cost Scale 10.00x
-              </div>
-            </div>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-white">Time Vault Upgrades</h3>
+            <p className="text-xs text-slate-400">
+              Upgrade Coin Flip Odds, Token Yield, Singularity Auto-Buy, and unlock the Ideal Tab.
+            </p>
           </div>
 
-          <button
-            type="button"
-            disabled={coinOddsMaxed || !timeFlipBuyInfo.canAfford}
-            onClick={onBuyTimeFlipUpgrade}
-            className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
-              coinOddsMaxed
-                ? 'cursor-default bg-emerald-500/20 text-emerald-300'
-                : timeFlipBuyInfo.canAfford
-                  ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95'
-                  : 'cursor-not-allowed bg-slate-800 text-slate-500'
-            }`}
-          >
-            {coinOddsMaxed ? (
-              'MAXED (80% Odds)'
-            ) : (
-              <>
-                <div>Upgrade +{timeFlipBuyInfo.count}</div>
-                <div className="font-mono text-[11px] tabular-nums">
-                  {adminFreeMode ? 'FREE' : `${formatNum(timeFlipBuyInfo.totalCost, notation)} 🪙`}
+          {hasAutoSingularity && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuySingularityUpgrades')}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuySingularityUpgrades
+                    ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-400'
+                }`}
+              >
+                Auto-Buy Singularity: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuyMax')}
+                className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold cursor-pointer ${
+                  automation.autoBuyMax
+                    ? 'border-amber-400 bg-amber-500/20 text-amber-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}
+              >
+                Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {/* 1. Coin Odds */}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-amber-500/30 bg-slate-950/70 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-950/40 text-2xl">
+                🎲
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">Coin Odds</span>
+                  <span className="font-mono text-xs text-amber-300 tabular-nums">
+                    Lv.{timeFlipChanceLevel}/{TIME_FLIP_MAX_LEVEL}
+                  </span>
                 </div>
-              </>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Increases Time Reset Coin Flip win odds by +5% per level (50% → 80% max).
+                </p>
+                <div className="mt-1 text-[11px] font-mono text-amber-200 tabular-nums">
+                  Current Odds: {Math.round(timeFlipWinChance * 100)}% · Cost Scale 10.00x
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={coinOddsMaxed || !timeFlipBuyInfo.canAfford}
+              onClick={onBuyTimeFlipUpgrade}
+              className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                coinOddsMaxed
+                  ? 'cursor-default bg-emerald-500/20 text-emerald-300'
+                  : timeFlipBuyInfo.canAfford
+                    ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 active:scale-95'
+                    : 'cursor-not-allowed bg-slate-800 text-slate-500'
+              }`}
+            >
+              {coinOddsMaxed ? (
+                'MAXED (80% Odds)'
+              ) : (
+                <>
+                  <div>Upgrade +{timeFlipBuyInfo.count}</div>
+                  <div className="font-mono text-[11px] tabular-nums">
+                    {adminFreeMode ? 'FREE' : `${formatNum(timeFlipBuyInfo.totalCost, notation)} 🪙`}
+                  </div>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 2. Time Token Multiplier */}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-cyan-500/30 bg-slate-950/70 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-cyan-500/30 bg-cyan-950/40 text-2xl">
+                ⏳
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">Chrono Token Amplifier</span>
+                  <span className="font-mono text-xs text-cyan-300 tabular-nums">
+                    Lv.{timeTokenBoostLevel}/{TIME_TOKEN_BOOST_MAX_LEVEL}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Doubles Time Tokens gained from every Time Reset (2x per level).
+                </p>
+                <div className="mt-1 text-[11px] font-mono text-cyan-200 tabular-nums">
+                  Current Bonus: ×{formatNum(timeTokenBoostMult, notation)} Tokens · Cost Scale 10.00x
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={tokenBoostMaxed || !timeTokenBoostBuyInfo.canAfford}
+              onClick={onBuyTimeTokenBoost}
+              className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                tokenBoostMaxed
+                  ? 'cursor-default bg-emerald-500/20 text-emerald-300'
+                  : timeTokenBoostBuyInfo.canAfford
+                    ? 'bg-cyan-400 text-slate-950 hover:bg-cyan-300 active:scale-95'
+                    : 'cursor-not-allowed bg-slate-800 text-slate-500'
+              }`}
+            >
+              {tokenBoostMaxed ? (
+                `MAXED (Lv.${TIME_TOKEN_BOOST_MAX_LEVEL})`
+              ) : (
+                <>
+                  <div>Upgrade +{timeTokenBoostBuyInfo.count}</div>
+                  <div className="font-mono text-[11px] tabular-nums">
+                    {adminFreeMode
+                      ? 'FREE'
+                      : `${formatNum(timeTokenBoostBuyInfo.totalCost, notation)} 🪙`}
+                  </div>
+                </>
+              )}
+            </button>
+          </div>
+
+          {/* 3. Auto-Buy Singularity Upgrades */}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-rose-500/30 bg-slate-950/70 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-rose-500/30 bg-rose-950/40 text-2xl">
+                🕳️
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">Auto-Buy Singularity Upgrades</span>
+                  <span className="font-mono text-xs text-rose-300">
+                    {timeAutoSingularityUnlocked ? 'UNLOCKED' : '1-Time'}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Automatically purchases Singularity Upgrades whenever you have Singularity Essence.
+                </p>
+              </div>
+            </div>
+
+            {timeAutoSingularityUnlocked ? (
+              <button
+                type="button"
+                onClick={() => onToggleAuto('autoBuySingularityUpgrades')}
+                className={`rounded-xl border px-4 py-2.5 text-xs font-extrabold cursor-pointer whitespace-nowrap shrink-0 ${
+                  automation.autoBuySingularityUpgrades
+                    ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                    : 'border-slate-700 bg-slate-800 text-slate-300'
+                }`}
+              >
+                Auto-Buy: {automation.autoBuySingularityUpgrades ? 'ON' : 'OFF'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={!canBuyTimeAutoSingularity}
+                onClick={onBuyTimeAutoSingularity}
+                className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                  canBuyTimeAutoSingularity
+                    ? 'bg-rose-500 text-white hover:bg-rose-400 active:scale-95'
+                    : 'cursor-not-allowed bg-slate-800 text-slate-500'
+                }`}
+              >
+                <div>Unlock Auto-Singularity</div>
+                <div className="font-mono text-[11px] tabular-nums">
+                  {adminFreeMode ? 'FREE' : `${formatNum(timeAutoSingularityCost, notation)} 🪙`}
+                </div>
+              </button>
             )}
-          </button>
+          </div>
+
+          {/* 4. Unlock Ideal Tab (1,000,000 Time Tokens) */}
+          <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-fuchsia-500/40 bg-gradient-to-r from-slate-950 via-fuchsia-950/30 to-slate-950 p-4">
+            <div className="flex items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-fuchsia-400/40 bg-fuchsia-950/50 text-2xl">
+                🌈
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-white">Unlock &ldquo;Ideal&rdquo; Tab</span>
+                  <span className="font-mono text-xs text-fuchsia-300">
+                    {idealTabUnlocked ? 'UNLOCKED' : '1,000,000 🪙'}
+                  </span>
+                </div>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Opens the prismatic Ideal XP bar (Red → Orange → Yellow → Green → Blue → Purple →
+                  Violet), awarding colored squares every level-up!
+                </p>
+              </div>
+            </div>
+
+            {idealTabUnlocked ? (
+              <button
+                type="button"
+                onClick={onOpenIdealTab}
+                className="rounded-xl bg-gradient-to-r from-rose-500 via-amber-400 to-violet-500 px-4 py-2.5 text-xs font-extrabold text-slate-950 shadow-md hover:brightness-110 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                Open Ideal Tab →
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={!canUnlockIdealTab}
+                onClick={onUnlockIdealTab}
+                className={`rounded-xl px-4 py-2.5 text-xs font-extrabold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                  canUnlockIdealTab
+                    ? 'bg-gradient-to-r from-fuchsia-500 to-violet-500 text-white shadow-lg shadow-fuchsia-500/25 hover:brightness-110 active:scale-95'
+                    : 'cursor-not-allowed bg-slate-800 text-slate-500'
+                }`}
+              >
+                <div>Unlock Ideal Tab</div>
+                <div className="font-mono text-[11px] tabular-nums">
+                  {adminFreeMode ? 'FREE' : `${formatNum(idealTabCost, notation)} 🪙`}
+                </div>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

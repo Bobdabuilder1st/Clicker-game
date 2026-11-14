@@ -65,7 +65,9 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
     : Math.min(100, (prestigePoints / Math.max(1, treeBuyInfo.nextSingleCost)) * 100);
 
   const row1 = skillNodes.filter((n) => n.branch === 'root');
-  const row2 = skillNodes.filter((n) => ['sk_scale', 'sk_fountain', 'sk_clicker'].includes(n.id));
+  const row2 = skillNodes.filter(
+    (n) => ['sk_scale', 'sk_fountain', 'sk_clicker'].includes(n.id) && !(n.id === 'sk_scale' && n.totalBonus >= 60)
+  );
   const row3 = skillNodes.filter((n) => ['sk_mints', 'sk_prestige_gen', 'sk_supercrit'].includes(n.id));
   const row4 = skillNodes.filter((n) => n.branch === 'capstone');
 
@@ -139,7 +141,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
           </span>
           {!maxed && (
             <span className="font-mono tabular-nums">
-              {adminFreeMode ? 'FREE' : `${formatNum(preview.totalCost, notation)} 🌳`}
+              {adminFreeMode ? 'FREE' : `${formatNum(preview.totalCost, notation)} 🍃`}
             </span>
           )}
         </button>
@@ -157,27 +159,27 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
               World Skill Tree · Harvest #{treeResetCount}
             </div>
             <h2 className="mt-0.5 text-xl font-extrabold text-white">
-              {formatNum(treePoints, notation)} Tree Points 🌳
+              {formatNum(treePoints, notation)} Leaves 🍃
             </h2>
             <p className="mt-1 text-xs text-slate-300">
-              Lifetime TP:{' '}
+              Lifetime Leaves:{' '}
               <strong className="font-mono text-emerald-200 tabular-nums">
                 {formatNum(lifetimeTreePoints, notation)}
               </strong>{' '}
-              · Tree Points boost Prestige Points & unlock Skill Nodes.
+              · Leaves boost Gems & unlock Skill Nodes.
               {ppPerSecond > 0 && (
                 <span className="ml-1.5 text-cyan-300">
-                  · +{formatNum(ppPerSecond, notation)} PP/s
+                  · +{formatNum(ppPerSecond, notation)} Gems/s
                 </span>
               )}
               {tpPerSecond > 0 && (
                 <span className="ml-1.5 text-emerald-300">
-                  · +{formatNum(tpPerSecond, notation)} TP/s
+                  · +{formatNum(tpPerSecond, notation)} Leaves/s
                 </span>
               )}
             </p>
             <p className="mt-0.5 text-xs text-rose-300/90">
-              Singularity Essence ({formatNum(singularityEssence, notation)}) → TP Gain:{' '}
+              Singularity Essence ({formatNum(singularityEssence, notation)}) → Leaf Gain:{' '}
               <strong className="font-mono tabular-nums">
                 ×{formatNum(essenceToTpMultiplier, notation)}
               </strong>{' '}
@@ -191,7 +193,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
         <div className="mt-4">
           <div className="mb-1.5 flex items-center justify-between text-xs">
             <span className="text-slate-400">
-              Tree Point Cost (1,000,000,000 Prestige Points base)
+              Leaf Cost (1,000,000,000 Gems base)
             </span>
             <span className="font-mono font-semibold text-emerald-200 tabular-nums">
               {formatNum(prestigePoints, notation)} /{' '}
@@ -208,7 +210,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-xs text-slate-400">
-            Harvesting Tree Points resets <strong className="text-slate-200">Prestige, Rebirth, and Coins</strong>.
+            Harvesting Leaves resets <strong className="text-slate-200">Prestige, Rebirth, and Coins</strong>.
           </div>
 
           <button
@@ -222,7 +224,7 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
             }`}
           >
             {treeBuyInfo.canAfford
-              ? `Harvest +${treeBuyInfo.count} (+${formatNum(projectedTreePointsGain, notation)} 🌳)`
+              ? `Harvest +${treeBuyInfo.count} (+${formatNum(projectedTreePointsGain, notation)} 🍃)`
               : `Need ${formatNum(treeBuyInfo.nextSingleCost, notation)} 💎`}
           </button>
         </div>
@@ -231,10 +233,9 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
       {/* Branching Skill Tree */}
       <div className="rounded-3xl border border-slate-800 bg-slate-900/75 p-5">
         <div className="mb-4">
-          <h3 className="text-base font-extrabold text-white">🌳 Skill Tree Upgrades</h3>
+          <h3 className="text-base font-extrabold text-white">🍃 Skill Tree Upgrades</h3>
           <p className="text-xs text-slate-400">
-            Purchased with Tree Points. Includes Prestige Nexus (generates Prestige Points every
-            second!).
+            Purchased with Leaves. Includes Gem Nexus (generates Gems every second!).
           </p>
         </div>
 
@@ -245,7 +246,11 @@ const SkillTreePanel: React.FC<SkillTreePanelProps> = ({
             <span>↓</span>
             <span>↘</span>
           </div>
-          <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3">
+          <div
+            className={`grid w-full grid-cols-1 gap-3 ${
+              row2.length === 2 ? 'md:grid-cols-2 max-w-3xl' : 'md:grid-cols-3'
+            }`}
+          >
             {row2.map(renderSkillCard)}
           </div>
           <div className="grid w-full grid-cols-3 text-center text-slate-600">

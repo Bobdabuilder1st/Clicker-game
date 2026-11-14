@@ -22,6 +22,81 @@ export const TIME_RESET_ESSENCE_COST = 1_000_000; // 1 Million Singularity Essen
 export const TIME_FLIP_BASE_COST = 10; // 10 Time Tokens
 export const TIME_FLIP_COST_SCALE = 10.0; // Increases 10x per purchase
 export const TIME_FLIP_MAX_LEVEL = 6; // 50% base + 6 * 5% = 80% max
+export const TIME_TOKEN_BOOST_BASE_COST = 10; // 10 Time Tokens
+export const TIME_TOKEN_BOOST_COST_SCALE = 10.0; // 10x per purchase
+export const TIME_TOKEN_BOOST_MAX_LEVEL = 30;
+export const TIME_AUTO_SINGULARITY_COST = 100; // 100 Time Tokens to unlock Auto-Buy Singularity
+export const IDEAL_TAB_COST = 1_000_000; // 1 Million Time Tokens to unlock Ideal tab
+
+export const IDEAL_BASE_XP = 10;
+export const IDEAL_XP_GROWTH = 1.416;
+export const IDEAL_SQUARES_PER_COLOR = 10;
+
+export const IDEAL_COLORS: {
+  id: 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'violet';
+  name: string;
+  barClass: string;
+  squareClass: string;
+  textClass: string;
+  borderClass: string;
+}[] = [
+  {
+    id: 'red',
+    name: 'Red',
+    barClass: 'from-red-500 to-rose-400',
+    squareClass: 'bg-red-500 border-red-300',
+    textClass: 'text-red-300',
+    borderClass: 'border-red-500/50'
+  },
+  {
+    id: 'orange',
+    name: 'Orange',
+    barClass: 'from-orange-500 to-amber-400',
+    squareClass: 'bg-orange-500 border-orange-300',
+    textClass: 'text-orange-300',
+    borderClass: 'border-orange-500/50'
+  },
+  {
+    id: 'yellow',
+    name: 'Yellow',
+    barClass: 'from-yellow-400 to-amber-300',
+    squareClass: 'bg-yellow-400 border-yellow-200',
+    textClass: 'text-yellow-300',
+    borderClass: 'border-yellow-400/50'
+  },
+  {
+    id: 'green',
+    name: 'Green',
+    barClass: 'from-emerald-500 to-green-400',
+    squareClass: 'bg-emerald-500 border-emerald-300',
+    textClass: 'text-emerald-300',
+    borderClass: 'border-emerald-500/50'
+  },
+  {
+    id: 'blue',
+    name: 'Blue',
+    barClass: 'from-blue-500 to-cyan-400',
+    squareClass: 'bg-blue-500 border-blue-300',
+    textClass: 'text-blue-300',
+    borderClass: 'border-blue-500/50'
+  },
+  {
+    id: 'purple',
+    name: 'Purple',
+    barClass: 'from-purple-600 to-purple-400',
+    squareClass: 'bg-purple-500 border-purple-300',
+    textClass: 'text-purple-300',
+    borderClass: 'border-purple-500/50'
+  },
+  {
+    id: 'violet',
+    name: 'Violet',
+    barClass: 'from-fuchsia-500 to-violet-400',
+    squareClass: 'bg-violet-500 border-violet-300',
+    textClass: 'text-violet-300',
+    borderClass: 'border-violet-500/50'
+  }
+];
 
 // Base Boosting Cap (100 Trillion) — multiplied by 10x every Time Reset!
 export const BASE_BOOST_CAP = 100_000_000_000_000; // 100 Trillion (1e14)
@@ -306,7 +381,7 @@ export const INITIAL_REBIRTH_PERKS: TieredPerk[] = [
   {
     id: 'rp_retainer',
     name: 'Rebirth Retainer',
-    description: 'Retain a share of your Coins across Rebirths (hard cap 80%)',
+    description: 'Retain a share of your Coins across Rebirths (hard cap 100%)',
     tier: 1,
     maxTier: LAYER_PERK_MAX_TIER,
     level: 0,
@@ -437,12 +512,12 @@ export const INITIAL_PRESTIGE_UPGRADES: TieredPerk[] = [
   }
 ];
 
-// Skill Tree (Own Section & Own Currency: Tree Points 🌳, resets Prestige + Rebirth + Coins)
+// Skill Tree (Own Section & Own Currency: Leaves 🍃, resets Prestige + Rebirth + Coins)
 export const INITIAL_SKILL_NODES: SkillNode[] = [
   {
     id: 'sk_root',
     name: 'Cosmic Awakening',
-    description: 'Root of the World Tree: multiplies Coins, RP, and Prestige gains',
+    description: 'Root of the World Tree: multiplies Coins, RP, and Gem gains',
     branch: 'root',
     requires: [],
     tier: 1,
@@ -460,7 +535,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
   {
     id: 'sk_scale',
     name: 'Stellar Architecture',
-    description: 'Reduces cost scaling factors across the board (hard cap 60%)',
+    description: 'Reduces cost scaling factors across the board (disappears at 60%)',
     branch: 'wealth',
     requires: ['sk_root'],
     tier: 1,
@@ -513,8 +588,8 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
   },
   {
     id: 'sk_prestige_gen',
-    name: 'Prestige Nexus',
-    description: 'Generates Prestige Points passively every second!',
+    name: 'Gem Nexus',
+    description: 'Generates Gems passively every second!',
     branch: 'rebirth',
     requires: ['sk_fountain'],
     tier: 1,
@@ -526,7 +601,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
     baseCost: 3,
     costScale: 2.2,
     bonusPerLevel: 1,
-    bonusUnit: 'PP/sec',
+    bonusUnit: 'Gems/sec',
     icon: '💎'
   },
   {
@@ -568,7 +643,7 @@ export const INITIAL_SKILL_NODES: SkillNode[] = [
   {
     id: 'sk_vanguard',
     name: 'Singularity Vanguard',
-    description: 'Converges all branches: massively multiplies Tree Points, Prestige, RP & Coins',
+    description: 'Converges all branches: massively multiplies Leaves, Gems, RP & Coins',
     branch: 'capstone',
     requires: ['sk_mints', 'sk_prestige_gen', 'sk_supercrit'],
     tier: 1,
@@ -590,7 +665,7 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
   {
     id: 'su_tree_gen',
     name: 'Yggdrasil Conduit',
-    description: 'Generates Tree Points/sec — output grows exponentially (+50% compound per level & doubles per tier)!',
+    description: 'Generates Leaves/sec — output grows exponentially (+50% compound per level & doubles per tier)!',
     tier: 1,
     maxTier: 10,
     level: 0,
@@ -600,8 +675,8 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
     baseCost: 1,
     costScale: 10,
     bonusPerLevel: 1,
-    bonusUnit: 'TP/sec base',
-    icon: '🌱'
+    bonusUnit: 'Leaves/sec base',
+    icon: '🍃'
   },
   {
     id: 'su_compression',
@@ -638,7 +713,7 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
   {
     id: 'su_darkenergy',
     name: 'Dark Energy Singularity',
-    description: 'Multiplies Prestige Points, Tree Points & Coin Core power',
+    description: 'Multiplies Gems, Leaves & Coin Core power',
     tier: 1,
     maxTier: 10,
     level: 0,
@@ -648,7 +723,7 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
     baseCost: 1,
     costScale: 10,
     bonusPerLevel: 250,
-    bonusUnit: '% PP/TP/Core',
+    bonusUnit: '% Gems/Leaves/Core',
     icon: '🌑'
   },
   {
@@ -698,6 +773,22 @@ export const INITIAL_SINGULARITY_UPGRADES: SingularityUpgrade[] = [
     bonusPerLevel: 1,
     bonusUnit: 'Unlock',
     icon: '♻️'
+  },
+  {
+    id: 'su_auto_prestige',
+    name: 'Auto-Buy Prestige Upgrades',
+    description: 'Automatically buys Prestige Upgrades whenever you have Gems',
+    tier: 1,
+    maxTier: 1,
+    level: 0,
+    totalLevels: 0,
+    totalBonus: 0,
+    tierMaxLevel: 1,
+    baseCost: 1,
+    costScale: 10,
+    bonusPerLevel: 1,
+    bonusUnit: 'Unlock',
+    icon: '💎'
   },
   {
     id: 'su_auto_clicker',

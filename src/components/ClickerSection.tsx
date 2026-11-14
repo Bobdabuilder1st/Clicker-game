@@ -251,7 +251,7 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
                     : 'border-slate-700 bg-slate-800 text-slate-400'
                 }`}
               >
-                Auto-Clicker (+5/s): {codeClickerEnabled ? 'ON' : 'OFF'}
+                Auto-Clicker (+100/s): {codeClickerEnabled ? 'ON' : 'OFF'}
               </button>
             )}
           </div>
@@ -350,10 +350,10 @@ export const ClickerSection: React.FC<ClickerSectionProps> = React.memo(({
         {(ppCoinMultiplier > 1 || tpCoinMultiplier > 1 || essenceCoinMultiplier > 1) && (
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] font-mono tabular-nums">
             {ppCoinMultiplier > 1 && (
-              <span className="text-cyan-300">PP→Coins: ×{formatNum(ppCoinMultiplier, notation)}</span>
+              <span className="text-cyan-300">Gems→Coins: ×{formatNum(ppCoinMultiplier, notation)}</span>
             )}
             {tpCoinMultiplier > 1 && (
-              <span className="text-emerald-300">TP→Coins: ×{formatNum(tpCoinMultiplier, notation)}</span>
+              <span className="text-emerald-300">Leaves→Coins: ×{formatNum(tpCoinMultiplier, notation)}</span>
             )}
             {essenceCoinMultiplier > 1 && (
               <span className="text-rose-300">

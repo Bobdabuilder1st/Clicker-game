@@ -38,7 +38,7 @@ interface RebirthPanelProps {
   onMultiBuyChange: (val: MultiBuyAmount) => void;
   onRequestRebirth: () => void;
   onBuyPerk: (id: string) => void;
-  onToggleAuto: (key: 'autoBuyRebirthUpgrades') => void;
+  onToggleAuto: (key: 'autoBuyRebirthUpgrades' | 'autoBuyMax') => void;
 }
 
 const RebirthPanel: React.FC<RebirthPanelProps> = ({
@@ -102,14 +102,14 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
               )}
             </p>
             <p className="mt-0.5 text-xs text-cyan-300/90">
-              Prestige ({formatNum(prestigePoints, notation)} PP) → RP:{' '}
+              Gems ({formatNum(prestigePoints, notation)} 💎) → RP:{' '}
               <strong className="font-mono tabular-nums">
                 ×{formatNum(ppToRpMultiplier, notation)}
               </strong>{' '}
               ({ppToRpPhase} · Cap {formatNum(boostCapCeiling, notation)})
               {tpToRpMultiplier > 1 && (
                 <span className="ml-1.5 text-emerald-300">
-                  · TP → RP: ×{formatNum(tpToRpMultiplier, notation)}
+                  · Leaves → RP: ×{formatNum(tpToRpMultiplier, notation)}
                 </span>
               )}
               {essenceToRpMultiplier > 1 && (
@@ -180,17 +180,30 @@ const RebirthPanel: React.FC<RebirthPanelProps> = ({
         </div>
 
         {hasAutoRebirth && (
-          <button
-            type="button"
-            onClick={() => onToggleAuto('autoBuyRebirthUpgrades')}
-            className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
-              automation.autoBuyRebirthUpgrades
-                ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
-                : 'border-slate-700 bg-slate-800 text-slate-400'
-            }`}
-          >
-            Auto-Buy Rebirth: {automation.autoBuyRebirthUpgrades ? 'ON' : 'OFF'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onToggleAuto('autoBuyRebirthUpgrades')}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                automation.autoBuyRebirthUpgrades
+                  ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-300'
+                  : 'border-slate-700 bg-slate-800 text-slate-400'
+              }`}
+            >
+              Auto-Buy Rebirth: {automation.autoBuyRebirthUpgrades ? 'ON' : 'OFF'}
+            </button>
+            <button
+              type="button"
+              onClick={() => onToggleAuto('autoBuyMax')}
+              className={`rounded-xl border px-2.5 py-1.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                automation.autoBuyMax
+                  ? 'border-amber-400/60 bg-amber-500/20 text-amber-300'
+                  : 'border-slate-700 bg-slate-800 text-slate-300'
+              }`}
+            >
+              Mode: {automation.autoBuyMax ? 'MAX' : '+1'}
+            </button>
+          </div>
         )}
       </div>
 

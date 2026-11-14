@@ -18,7 +18,19 @@ export type ActiveTab =
   | 'prestige'
   | 'skillTree'
   | 'singularity'
-  | 'timeReset';
+  | 'timeReset'
+  | 'ideal';
+
+export type IdealColor = 'red' | 'orange' | 'yellow' | 'green' | 'blue' | 'purple' | 'violet';
+
+export interface IdealState {
+  colorIndex: number; // 0=red, 1=orange, 2=yellow, 3=green, 4=blue, 5=purple, 6=violet
+  xp: number;
+  xpNeeded: number;
+  levelInColor: number;
+  totalLevels: number;
+  squares: Record<IdealColor, number>;
+}
 
 export interface Building {
   id: string;
@@ -122,6 +134,9 @@ export interface AutomationState {
   autoBuyUpgrades: boolean;
   autoLevelClicker: boolean;
   autoBuyRebirthUpgrades: boolean;
+  autoBuyPrestigeUpgrades: boolean;
+  autoBuySingularityUpgrades: boolean;
+  autoBuyMax: boolean;
   buildingAutoBuyEnabled: Record<string, boolean>;
 }
 
@@ -171,6 +186,12 @@ export interface GameState {
   timeTokens: number;
   lifetimeTimeTokens: number;
   timeFlipChanceLevel: number; // Coin Odds: +5% per level up to 80% (max 6)
+  timeTokenBoostLevel: number; // Boosts Time Tokens gained on Time Reset
+  timeAutoSingularityUnlocked: boolean;
+
+  // Ideal Tab Layer (Unlocked for 1,000,000 Time Tokens)
+  idealTabUnlocked: boolean;
+  ideal: IdealState;
 
   // Core Entities
   buildings: Building[];

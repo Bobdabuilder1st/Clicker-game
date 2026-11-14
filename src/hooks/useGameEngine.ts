@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   ActiveTab,
   GameState,
+  IdealColor,
+  IdealState,
   MultiBuyAmount,
   MultiBuySection,
   SaveStateEntry,
@@ -16,6 +18,11 @@ import {
   ESSENCE_REACTOR_BASE_COST,
   ESSENCE_REACTOR_COST_SCALE,
   ESSENCE_REACTOR_MAX_LEVEL,
+  IDEAL_BASE_XP,
+  IDEAL_COLORS,
+  IDEAL_SQUARES_PER_COLOR,
+  IDEAL_TAB_COST,
+  IDEAL_XP_GROWTH,
   INITIAL_BUILDINGS,
   INITIAL_PRESTIGE_UPGRADES,
   INITIAL_REBIRTH_PERKS,
@@ -30,10 +37,14 @@ import {
   SINGULARITY_BASE_TP_COST,
   SINGULARITY_CORE_MAX_LEVEL,
   SINGULARITY_TP_SCALE,
+  TIME_AUTO_SINGULARITY_COST,
   TIME_FLIP_BASE_COST,
   TIME_FLIP_COST_SCALE,
   TIME_FLIP_MAX_LEVEL,
   TIME_RESET_ESSENCE_COST,
+  TIME_TOKEN_BOOST_BASE_COST,
+  TIME_TOKEN_BOOST_COST_SCALE,
+  TIME_TOKEN_BOOST_MAX_LEVEL,
   TREE_POINT_BASE_PP_COST,
   UPGRADE_MAX_TIER,
   getClickerEvolution,
@@ -77,9 +88,28 @@ function createDefaultMultiBuyMap(): Record<MultiBuySection, MultiBuyAmount> {
   };
 }
 
+function createInitialIdealState(): IdealState {
+  return {
+    colorIndex: 0,
+    xp: 0,
+    xpNeeded: IDEAL_BASE_XP,
+    levelInColor: 0,
+    totalLevels: 0,
+    squares: {
+      red: 0,
+      orange: 0,
+      yellow: 0,
+      green: 0,
+      blue: 0,
+      purple: 0,
+      violet: 0
+    }
+  };
+}
+
 function createInitialState(): GameState {
   return {
-    version: 6,
+    version: 7,
     coins: 0,
     lifetimeCoins: 0,
     totalClicks: 0,
@@ -106,6 +136,10 @@ function createInitialState(): GameState {
     timeTokens: 0,
     lifetimeTimeTokens: 0,
     timeFlipChanceLevel: 0,
+    timeTokenBoostLevel: 0,
+    timeAutoSingularityUnlocked: false,
+    idealTabUnlocked: false,
+    ideal: createInitialIdealState(),
     buildings: INITIAL_BUILDINGS.map((b) => ({ ...b })),
     upgradeTracks: INITIAL_UPGRADE_TRACKS.map((u) => ({ ...u })),
     completedUpgradeCount: 0,
@@ -115,6 +149,9 @@ function createInitialState(): GameState {
       autoBuyUpgrades: true,
       autoLevelClicker: true,
       autoBuyRebirthUpgrades: true,
+      autoBuyPrestigeUpgrades: true,
+      autoBuySingularityUpgrades: true,
+      autoBuyMax: false,
       buildingAutoBuyEnabled: createDefaultBuildingAutoMap()
     },
     multiBuyBySection: createDefaultMultiBuyMap(),
@@ -183,6 +220,20 @@ function normalizeState(parsed: Partial<GameState>): GameState {
       TIME_FLIP_MAX_LEVEL,
       Math.max(0, parsed.timeFlipChanceLevel ?? 0)
     ),
+    timeTokenBoostLevel: Math.min(
+      TIME_TOKEN_BOOST_MAX_LEVEL,
+      Math.max(0, parsed.timeTokenBoostLevel ?? 0)
+    ),
+    timeAutoSingularityUnlocked: Boolean(parsed.timeAutoSingularityUnlocked),
+    idealTabUnlocked: Boolean(parsed.idealTabUnlocked),
+    ideal: {
+      ...def.ideal,
+      ...(parsed.ideal ?? {}),
+      squares: {
+        ...def.ideal.squares,
+        ...(parsed.ideal?.squares ?? {})
+      }
+    },
     buildings: mergeById(def.buildings, parsed.buildings),
     upgradeTracks: mergeById(def.upgradeTracks, parsed.upgradeTracks).map((u) => ({
       ...u,
@@ -713,10 +764,10 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           )
         : 0;
 
-    // 10. Auto-Clicks/sec (Includes Code Auto-Clicker from "clicker" code!)
+    // 10. Auto-Clicks/sec (Code Auto-Clicker does 100 clicks/sec!)
     const autoPulseClicks = applySoftAndHardCap(getRebirthPerk('rp_autopulse')?.totalBonus ?? 0, 50, 250, 0.45);
     const companionClicks = clickerEvolution.companionCount * (1 + (getSkill('sk_clicker')?.totalLevels ?? 0) * 0.5);
-    const codeAutoClicks = state.codeClickerUnlocked && state.codeClickerEnabled ? 5 : 0;
+    const codeAutoClicks = state.codeClickerUnlocked && state.codeClickerEnabled ? 100 : 0;
     const autoClicksPerSecond = safeMul(autoPulseClicks + companionClicks + codeAutoClicks, gameSpeedMultiplier);
 
     // 11. Coin Core Multi-Buy (NO level cap, 1.1x cost scale!)
@@ -961,11 +1012,22 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
                 nextSingleCost: nextCoreSingleCost
               };
 
-    // 16. Time Reset & Coin Odds (+5% per level, 50% -> 80% max)
+    // 16. Time Reset, Coin Odds (+5% per level, 50% -> 80% max), Token Boost, Auto-Singularity & Ideal Tab
     const timeResetRequiredEssence = free ? 0 : safeNum(TIME_RESET_ESSENCE_COST * hardCostMult);
     const canTimeReset = free ? true : state.singularityEssence >= timeResetRequiredEssence;
+    const timeTokenBoostMult = safePow(2, state.timeTokenBoostLevel);
     const projectedTimeTokens = canTimeReset
-      ? Math.max(1, Math.floor(Math.pow(Math.max(1, state.singularityEssence / Math.max(1, timeResetRequiredEssence)), 0.5)))
+      ? safeNum(
+          Math.max(
+            1,
+            Math.floor(
+              safeMul(
+                Math.pow(Math.max(1, state.singularityEssence / Math.max(1, timeResetRequiredEssence)), 0.5),
+                timeTokenBoostMult
+              )
+            )
+          )
+        )
       : 0;
     const timeFlipWinChance = Math.min(0.8, 0.5 + state.timeFlipChanceLevel * 0.05);
     const timeFlipRemaining = Math.max(0, TIME_FLIP_MAX_LEVEL - state.timeFlipChanceLevel);
@@ -992,17 +1054,58 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
               hardCostMult
             );
 
-    // 17. Separate Singularity Automations
+    const tokenBoostRemaining = Math.max(0, TIME_TOKEN_BOOST_MAX_LEVEL - state.timeTokenBoostLevel);
+    const timeTokenBoostBuyInfo =
+      tokenBoostRemaining <= 0
+        ? { count: 0, totalCost: 0, canAfford: false, nextSingleCost: 0 }
+        : free
+          ? {
+              count: Math.min(
+                tokenBoostRemaining,
+                state.multiBuyBySection.timeReset === -1 ? 5 : state.multiBuyBySection.timeReset
+              ),
+              totalCost: 0,
+              canAfford: true,
+              nextSingleCost: 0
+            }
+          : calculateMultiBuy(
+              state.timeTokens,
+              TIME_TOKEN_BOOST_BASE_COST,
+              TIME_TOKEN_BOOST_COST_SCALE,
+              state.timeTokenBoostLevel,
+              state.multiBuyBySection.timeReset,
+              tokenBoostRemaining,
+              hardCostMult
+            );
+
+    const timeAutoSingularityCost = free ? 0 : safeNum(TIME_AUTO_SINGULARITY_COST * hardCostMult);
+    const canBuyTimeAutoSingularity =
+      !state.timeAutoSingularityUnlocked && (free || state.timeTokens >= timeAutoSingularityCost);
+
+    const idealTabCost = free ? 0 : safeNum(IDEAL_TAB_COST * hardCostMult);
+    const canUnlockIdealTab =
+      !state.idealTabUnlocked && (free || state.timeTokens >= idealTabCost);
+    const idealXpPerSecond =
+      state.idealTabUnlocked || state.adminUnlocked
+        ? 1 + state.ideal.totalLevels + state.ideal.colorIndex
+        : 0;
+
+    // 17. Separate Singularity & Time Automations
     const hasAutoBuildings = (getSingUpg('su_auto_buildings')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
     const hasAutoUpgrades = (getSingUpg('su_auto_upgrades')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
     const hasAutoRebirth = (getSingUpg('su_auto_rebirth')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
+    const hasAutoPrestige = (getSingUpg('su_auto_prestige')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
     const hasAutoClicker = (getSingUpg('su_auto_clicker')?.totalLevels ?? 0) >= 1 || state.adminUnlocked;
+    const hasAutoSingularity = state.timeAutoSingularityUnlocked || state.adminUnlocked;
+
+    const isStellarMaxed = (getSkill('sk_scale')?.totalBonus ?? 0) >= 60;
 
     return {
       hardCostMult,
       timeTokenMult,
       boostCapCeiling,
       globalScaleReduction,
+      isStellarMaxed,
       coreCoinMult,
       coreRpMult,
       corePpMult,
@@ -1052,6 +1155,13 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       singularityCoreBuyInfo,
       timeResetRequiredEssence,
       canTimeReset,
+      timeTokenBoostMult,
+      timeTokenBoostBuyInfo,
+      timeAutoSingularityCost,
+      canBuyTimeAutoSingularity,
+      idealTabCost,
+      canUnlockIdealTab,
+      idealXpPerSecond,
       projectedTimeTokens,
       timeFlipWinChance,
       timeFlipBuyInfo,
@@ -1060,8 +1170,10 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       hasAutoBuildings,
       hasAutoUpgrades,
       hasAutoRebirth,
+      hasAutoPrestige,
+      hasAutoSingularity,
       hasAutoClicker,
-      retainedCoinPct: applySoftAndHardCap((getRebirthPerk('rp_retainer')?.totalBonus ?? 0) / 100, 0.55, 0.8, 0.5),
+      retainedCoinPct: applySoftAndHardCap((getRebirthPerk('rp_retainer')?.totalBonus ?? 0) / 100, 0.7, 1.0, 0.5),
       startingTreasury: safeNum(getRebirthPerk('rp_treasury')?.totalBonus ?? 0),
       keptRebirthLevels: Math.floor(getPrestigeUpg('pu_memory')?.totalBonus ?? 0),
       primordialStartRp: safeNum(getSingUpg('su_primordial')?.totalBonus ?? 0)
@@ -1103,23 +1215,76 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         let nextBuildings = prev.buildings;
         let nextTracks = prev.upgradeTracks;
         let nextRebirthPerks = prev.rebirthPerks;
+        let nextPrestigeUpgrades = prev.prestigeUpgrades;
+        let nextSingularityUpgrades = prev.singularityUpgrades;
         let nextClickerLevel = prev.clickerLevel;
         let nextCompletedUpgrades = prev.completedUpgradeCount;
         let nextCompletedPerkTiers = prev.completedPerkTiersCount;
         const hardMult = prev.hardMode ? 10 : 1;
 
+        // Ideal XP Progression (Red -> Orange -> Yellow -> Green -> Blue -> Purple -> Violet)
+        let nextIdeal = prev.ideal;
+        if (s.idealXpPerSecond > 0) {
+          let curColorIdx = prev.ideal.colorIndex;
+          let curXp = prev.ideal.xp + s.idealXpPerSecond * dt;
+          let curXpNeeded = prev.ideal.xpNeeded;
+          let curLvlInColor = prev.ideal.levelInColor;
+          let curTotalLevels = prev.ideal.totalLevels;
+          let nextSquares: Record<IdealColor, number> | null = null;
+          let leveledUp = false;
+
+          let guard = 0;
+          while (curXp >= curXpNeeded && guard < 25) {
+            guard++;
+            curXp -= curXpNeeded;
+            leveledUp = true;
+            if (!nextSquares) nextSquares = { ...prev.ideal.squares };
+            const colorId = IDEAL_COLORS[Math.min(IDEAL_COLORS.length - 1, curColorIdx)].id;
+            nextSquares[colorId] = (nextSquares[colorId] ?? 0) + 1;
+            curLvlInColor += 1;
+            curTotalLevels += 1;
+
+            if (curLvlInColor >= IDEAL_SQUARES_PER_COLOR && curColorIdx < IDEAL_COLORS.length - 1) {
+              curColorIdx += 1;
+              curLvlInColor = 0;
+              curXpNeeded = IDEAL_BASE_XP * Math.pow(2, curColorIdx);
+            } else {
+              curXpNeeded = Number((curXpNeeded * IDEAL_XP_GROWTH).toFixed(4));
+            }
+          }
+
+          nextIdeal = {
+            colorIndex: curColorIdx,
+            xp: curXp,
+            xpNeeded: curXpNeeded,
+            levelInColor: curLvlInColor,
+            totalLevels: curTotalLevels,
+            squares: leveledUp && nextSquares ? nextSquares : prev.ideal.squares
+          };
+        }
+
         if (tickCounter % 2 === 0 && !prev.adminFreeMode) {
+          const autoMulti: MultiBuyAmount = prev.automation.autoBuyMax ? -1 : 1;
+
           if (s.hasAutoBuildings && prev.automation.autoBuyBuildings) {
             let changed = false;
             const mapped = prev.buildings.map((b) => {
               if (prev.automation.buildingAutoBuyEnabled[b.id] === false) return b;
               if (nextLifetimeCoins < b.unlockCoins && b.count === 0) return b;
               const effScale = getEffectiveScale(b.scaleFactor, s.globalScaleReduction);
-              const cost = getLevelCost(b.baseCost, effScale, b.count, s.buildingDiscountMult * hardMult);
-              if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
-                nextCoins = safeNum(nextCoins - cost);
+              const info = calculateMultiBuy(
+                nextCoins,
+                b.baseCost,
+                effScale,
+                b.count,
+                autoMulti,
+                250,
+                s.buildingDiscountMult * hardMult
+              );
+              if (info.canAfford && info.count > 0 && info.totalCost < FLOAT_SAFE_MAX) {
+                nextCoins = safeNum(nextCoins - info.totalCost);
                 changed = true;
-                return { ...b, count: b.count + 1 };
+                return { ...b, count: b.count + info.count };
               }
               return b;
             });
@@ -1131,12 +1296,21 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             const mapped = prev.upgradeTracks.map((trk) => {
               if (trk.tier >= trk.maxTier) return trk;
               const effScale = getEffectiveScale(trk.costScale, s.globalScaleReduction);
-              const cost = getLevelCost(trk.baseCost, effScale, trk.tier - 1, hardMult);
-              if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
-                nextCoins = safeNum(nextCoins - cost);
-                nextCompletedUpgrades += 1;
+              const remaining = Math.max(0, trk.maxTier - trk.tier);
+              const info = calculateMultiBuy(
+                nextCoins,
+                trk.baseCost,
+                effScale,
+                trk.tier - 1,
+                autoMulti,
+                remaining,
+                hardMult
+              );
+              if (info.canAfford && info.count > 0 && info.totalCost < FLOAT_SAFE_MAX) {
+                nextCoins = safeNum(nextCoins - info.totalCost);
+                nextCompletedUpgrades += info.count;
                 changed = true;
-                return { ...trk, tier: trk.tier + 1 };
+                return { ...trk, tier: Math.min(trk.maxTier, trk.tier + info.count) };
               }
               return trk;
             });
@@ -1147,7 +1321,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
             let changed = false;
             const mapped = prev.rebirthPerks.map((perk) => {
               if (isTieredItemMaxed(perk)) return perk;
-              const res = applyTieredPurchase(perk, nextRp, 1, s.globalScaleReduction, false, hardMult);
+              const res = applyTieredPurchase(perk, nextRp, autoMulti, s.globalScaleReduction, false, hardMult);
               if (res.bought > 0) {
                 nextRp = safeNum(nextRp - res.spent);
                 nextCompletedPerkTiers += res.evolutions;
@@ -1161,12 +1335,57 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
 
           if (s.hasAutoClicker && prev.automation.autoLevelClicker) {
             const effClickerScale = getEffectiveScale(CLICKER_COST_SCALE, s.globalScaleReduction);
-            const cost = getLevelCost(CLICKER_BASE_COST, effClickerScale, nextClickerLevel - 1, hardMult);
-            if (cost < FLOAT_SAFE_MAX && nextCoins >= cost) {
-              nextCoins = safeNum(nextCoins - cost);
-              nextClickerLevel += 1;
+            const info = calculateMultiBuy(
+              nextCoins,
+              CLICKER_BASE_COST,
+              effClickerScale,
+              nextClickerLevel - 1,
+              autoMulti,
+              1000,
+              hardMult
+            );
+            if (info.canAfford && info.count > 0 && info.totalCost < FLOAT_SAFE_MAX) {
+              nextCoins = safeNum(nextCoins - info.totalCost);
+              nextClickerLevel += info.count;
             }
           }
+        }
+
+        // Clean budget-safe PP & Essence deductions for Auto-Buy Prestige & Auto-Buy Singularity
+        let finalPp = nextPp;
+        if (tickCounter % 2 === 0 && !prev.adminFreeMode && s.hasAutoPrestige && prev.automation.autoBuyPrestigeUpgrades) {
+          const autoMulti: MultiBuyAmount = prev.automation.autoBuyMax ? -1 : 1;
+          let changed = false;
+          const mapped = prev.prestigeUpgrades.map((upg) => {
+            if (isTieredItemMaxed(upg)) return upg;
+            const res = applyTieredPurchase(upg, finalPp, autoMulti, s.globalScaleReduction, false, hardMult);
+            if (res.bought > 0) {
+              finalPp = safeNum(finalPp - res.spent);
+              nextCompletedPerkTiers += res.evolutions;
+              changed = true;
+              return res.updated;
+            }
+            return upg;
+          });
+          if (changed) nextPrestigeUpgrades = mapped;
+        }
+
+        let finalEssence = nextEssence;
+        if (tickCounter % 2 === 0 && !prev.adminFreeMode && s.hasAutoSingularity && prev.automation.autoBuySingularityUpgrades) {
+          const autoMulti: MultiBuyAmount = prev.automation.autoBuyMax ? -1 : 1;
+          let changed = false;
+          const mapped = prev.singularityUpgrades.map((upg) => {
+            if (isTieredItemMaxed(upg)) return upg;
+            const res = applyTieredPurchase(upg, finalEssence, autoMulti, s.globalScaleReduction, false, hardMult);
+            if (res.bought > 0) {
+              finalEssence = safeNum(finalEssence - res.spent);
+              nextCompletedPerkTiers += res.evolutions;
+              changed = true;
+              return res.updated;
+            }
+            return upg;
+          });
+          if (changed) nextSingularityUpgrades = mapped;
         }
 
         return {
@@ -1175,15 +1394,18 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
           lifetimeCoins: nextLifetimeCoins,
           rebirthPoints: nextRp,
           lifetimeRebirthPoints: nextLifetimeRp,
-          prestigePoints: nextPp,
+          prestigePoints: finalPp,
           lifetimePrestigePoints: nextLifetimePp,
           treePoints: nextTp,
           lifetimeTreePoints: nextLifetimeTp,
-          singularityEssence: nextEssence,
+          singularityEssence: finalEssence,
           lifetimeSingularityEssence: nextLifetimeEssence,
+          ideal: nextIdeal,
           buildings: nextBuildings,
           upgradeTracks: nextTracks,
           rebirthPerks: nextRebirthPerks,
+          prestigeUpgrades: nextPrestigeUpgrades,
+          singularityUpgrades: nextSingularityUpgrades,
           clickerLevel: nextClickerLevel,
           completedUpgradeCount: nextCompletedUpgrades,
           completedPerkTiersCount: nextCompletedPerkTiers
@@ -1277,7 +1499,16 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
   }, []);
 
   const toggleAutomation = useCallback(
-    (key: 'autoBuyBuildings' | 'autoBuyUpgrades' | 'autoLevelClicker' | 'autoBuyRebirthUpgrades') => {
+    (
+      key:
+        | 'autoBuyBuildings'
+        | 'autoBuyUpgrades'
+        | 'autoLevelClicker'
+        | 'autoBuyRebirthUpgrades'
+        | 'autoBuyPrestigeUpgrades'
+        | 'autoBuySingularityUpgrades'
+        | 'autoBuyMax'
+    ) => {
       setState((prev) => ({
         ...prev,
         automation: { ...prev.automation, [key]: !prev.automation[key] }
@@ -1453,18 +1684,30 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       const s = statsRef.current;
       setState((prev) => {
         const target = prev.skillNodes.find((n) => n.id === nodeId);
-        if (!target || isTieredItemMaxed(target) || !isSkillNodeUnlocked(target, prev.skillNodes, prev.adminUnlocked)) {
+        if (
+          !target ||
+          isTieredItemMaxed(target) ||
+          (target.id === 'sk_scale' && target.totalBonus >= 60) ||
+          !isSkillNodeUnlocked(target, prev.skillNodes, prev.adminUnlocked)
+        ) {
           return prev;
         }
+        const effectiveMulti: MultiBuyAmount =
+          target.id === 'sk_scale' && prev.multiBuyBySection.skillTree === -1
+            ? (Math.max(1, Math.ceil((60 - target.totalBonus) / Math.max(1, target.bonusPerLevel))) as MultiBuyAmount)
+            : prev.multiBuyBySection.skillTree;
         const res = applyTieredPurchase(
           target,
           prev.treePoints,
-          prev.multiBuyBySection.skillTree,
+          target.id === 'sk_scale' ? (prev.multiBuyBySection.skillTree === -1 ? -1 : effectiveMulti) : prev.multiBuyBySection.skillTree,
           s.globalScaleReduction,
           prev.adminFreeMode,
           s.hardCostMult
         );
         if (res.bought <= 0) return prev;
+        if (target.id === 'sk_scale' && res.updated.totalBonus > 60) {
+          res.updated.totalBonus = 60;
+        }
         if (res.evolutions > 0) sounds.playLevelUp();
         else sounds.playBuy();
         return {
@@ -1697,6 +1940,47 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     }));
   }, []);
 
+  const buyTimeTokenBoostUpgrade = useCallback(() => {
+    const s = statsRef.current;
+    if (!s.timeTokenBoostBuyInfo.canAfford || s.timeTokenBoostBuyInfo.count <= 0) return;
+    if (stateRef.current.timeTokenBoostLevel >= TIME_TOKEN_BOOST_MAX_LEVEL) return;
+    sounds.playBuy();
+    setState((prev) => ({
+      ...prev,
+      timeTokens: prev.adminFreeMode
+        ? prev.timeTokens
+        : safeNum(prev.timeTokens - s.timeTokenBoostBuyInfo.totalCost),
+      timeTokenBoostLevel: Math.min(
+        TIME_TOKEN_BOOST_MAX_LEVEL,
+        prev.timeTokenBoostLevel + s.timeTokenBoostBuyInfo.count
+      )
+    }));
+  }, []);
+
+  const buyTimeAutoSingularity = useCallback(() => {
+    const s = statsRef.current;
+    if (!s.canBuyTimeAutoSingularity) return;
+    sounds.playLevelUp();
+    setState((prev) => ({
+      ...prev,
+      timeTokens: prev.adminFreeMode
+        ? prev.timeTokens
+        : safeNum(prev.timeTokens - s.timeAutoSingularityCost),
+      timeAutoSingularityUnlocked: true
+    }));
+  }, []);
+
+  const unlockIdealTab = useCallback(() => {
+    const s = statsRef.current;
+    if (!s.canUnlockIdealTab) return;
+    sounds.playSingularity();
+    setState((prev) => ({
+      ...prev,
+      timeTokens: prev.adminFreeMode ? prev.timeTokens : safeNum(prev.timeTokens - s.idealTabCost),
+      idealTabUnlocked: true
+    }));
+  }, []);
+
   // Unified Code Redeemer ("HARD", "clicker", "bobdabuilder")
   const redeemCode = useCallback(
     (rawCode: string): { ok: boolean; type?: 'hard' | 'clicker' | 'admin'; message: string } => {
@@ -1726,7 +2010,7 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
         return {
           ok: true,
           type: 'clicker',
-          message: 'Auto-Clicker unlocked! (+5 Auto-Clicks/sec active)'
+          message: 'Auto-Clicker unlocked! (+100 Auto-Clicks/sec active)'
         };
       }
 
@@ -1789,8 +2073,8 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
       lifetimeTreePoints: safeNum(Math.max(prev.lifetimeTreePoints, 1e15)),
       singularityEssence: safeNum(prev.singularityEssence + 1e9),
       lifetimeSingularityEssence: safeNum(Math.max(prev.lifetimeSingularityEssence, 1e9)),
-      timeTokens: safeNum(prev.timeTokens + 1000),
-      lifetimeTimeTokens: safeNum(Math.max(prev.lifetimeTimeTokens, 1000))
+      timeTokens: safeNum(prev.timeTokens + 2_000_000),
+      lifetimeTimeTokens: safeNum(Math.max(prev.lifetimeTimeTokens, 2_000_000))
     }));
   }, []);
 
@@ -1837,6 +2121,9 @@ export function useGameEngine(activeTab: ActiveTab = 'buildings') {
     triggerSingularity,
     triggerTimeReset,
     buyTimeFlipUpgrade,
+    buyTimeTokenBoostUpgrade,
+    buyTimeAutoSingularity,
+    unlockIdealTab,
     unlockAdminWithCode,
     toggleAdminFreeMode,
     adminGrantResources,
